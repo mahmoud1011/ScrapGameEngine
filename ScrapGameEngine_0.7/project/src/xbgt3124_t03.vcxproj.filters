@@ -1,0 +1,215 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="ScrapGameEngine">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="ScrapGameEngine\Framework">
+      <UniqueIdentifier>{4224e2d2-1465-4822-b39a-80fb627ea79e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\Renderer">
+      <UniqueIdentifier>{73411f65-cdda-4727-b056-115975c65156}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\Components">
+      <UniqueIdentifier>{b17260e5-d67c-46d6-89ad-a169aea39a2a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\OCM">
+      <UniqueIdentifier>{e864e756-ba8d-42b6-97c9-0ffaad358dad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\Scenes">
+      <UniqueIdentifier>{a732a663-aa0d-4ff8-a26f-53f35f96bd4b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\ResourceAllocaters">
+      <UniqueIdentifier>{5d4c7e31-f1c4-4204-bdc1-0f0aec3b68b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\EventSystem">
+      <UniqueIdentifier>{d0a21d80-8ebb-4bb7-9374-16159ff91786}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ScrapGameEngine\TaskManagement">
+      <UniqueIdentifier>{28071bcd-bc96-42e4-b499-8b59461a29dc}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Application.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="AppWindow.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="Time.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="Graphics.cpp">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer.cpp">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="glad.c">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Transform.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="GameObject.cpp">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClCompile>
+    <ClCompile Include="BaseComponent.cpp">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClCompile>
+    <ClCompile Include="GameObjectCollection.cpp">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="BaseScene.cpp">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneStateMachine.cpp">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClCompile>
+    <ClCompile Include="MainMenuScene.cpp">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="SplashScreenScene.cpp">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="Camera.cpp">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClCompile>
+    <ClCompile Include="MeshAllocater.cpp">
+      <Filter>ScrapGameEngine\ResourceAllocaters</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureAllocator.cpp">
+      <Filter>ScrapGameEngine\ResourceAllocaters</Filter>
+    </ClCompile>
+    <ClCompile Include="Mesh.cpp">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture2D.cpp">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Button.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="SpriteRenderer.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="GameScene.cpp">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="AudioSource.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Scheduler.cpp">
+      <Filter>ScrapGameEngine\TaskManagement</Filter>
+    </ClCompile>
+    <ClCompile Include="Text.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="TweenComponent.cpp">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="LoadScene.cpp">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Time.h">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClInclude>
+    <ClInclude Include="Application.h">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClInclude>
+    <ClInclude Include="AppWindow.h">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClInclude>
+    <ClInclude Include="Graphics.h">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer.h">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Transform.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="GameObject.h">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClInclude>
+    <ClInclude Include="BaseComponent.h">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClInclude>
+    <ClInclude Include="GameObjectCollection.h">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClInclude>
+    <ClInclude Include="BaseScene.h">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneStateMachine.h">
+      <Filter>ScrapGameEngine\OCM</Filter>
+    </ClInclude>
+    <ClInclude Include="SplashScreenScene.h">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="MainMenuScene.h">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureAllocator.h">
+      <Filter>ScrapGameEngine\ResourceAllocaters</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshAllocater.h">
+      <Filter>ScrapGameEngine\ResourceAllocaters</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera.h">
+      <Filter>ScrapGameEngine\Framework</Filter>
+    </ClInclude>
+    <ClInclude Include="Signal.h">
+      <Filter>ScrapGameEngine\EventSystem</Filter>
+    </ClInclude>
+    <ClInclude Include="Mesh.h">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture2D.h">
+      <Filter>ScrapGameEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Button.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="SpriteRenderer.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="HoverSensors.h">
+      <Filter>ScrapGameEngine\EventSystem</Filter>
+    </ClInclude>
+    <ClInclude Include="GameScene.h">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="AudioSource.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Scheduler.h">
+      <Filter>ScrapGameEngine\TaskManagement</Filter>
+    </ClInclude>
+    <ClInclude Include="Text.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="TweenComponent.h">
+      <Filter>ScrapGameEngine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="LoadScene.h">
+      <Filter>ScrapGameEngine\Scenes</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,59 @@
+﻿  Application.cpp
+  Button.cpp
+  GameScene.cpp
+  Graphics.cpp
+  LoadScene.cpp
+  MainMenuScene.cpp
+  MeshAllocater.cpp
+  Renderer.cpp
+  Scheduler.cpp
+  SplashScreenScene.cpp
+  SpriteRenderer.cpp
+  Text.cpp
+D:\Assigments\Year3\Sem2\Game Engine Architecture\ScrapGameEngine_0.7\ScrapGameEngine_0.7\project\src\Text.cpp(57,59): warning C4018: '>': signed/unsigned mismatch
+D:\Assigments\Year3\Sem2\Game Engine Architecture\ScrapGameEngine_0.7\ScrapGameEngine_0.7\project\src\Text.cpp(63,58): warning C4018: '>': signed/unsigned mismatch
+  Texture2D.cpp
+  TextureAllocator.cpp
+  TweenComponent.cpp
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31): warning C4244: 'return': conversion from 'double' to '_Rx', possible loss of data
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31): warning C4244:         with
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31): warning C4244:         [
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31): warning C4244:             _Rx=float
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31): warning C4244:         ]
+  (compiling source file 'TweenComponent.cpp')
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(810,31):
+      the template instantiation context (the oldest one first) is
+          D:\Assigments\Year3\Sem2\Game Engine Architecture\ScrapGameEngine_0.7\ScrapGameEngine_0.7\project\src\TweenComponent.cpp(46,13):
+          see reference to function template instantiation 'std::function<float (float)>::function<ScrapGameEngine::getEasingFunction::<lambda_8>,0>(_Fx &&)' being compiled
+          with
+          [
+              _Fx=ScrapGameEngine::getEasingFunction::<lambda_8>
+          ]
+              D:\Assigments\Year3\Sem2\Game Engine Architecture\ScrapGameEngine_0.7\ScrapGameEngine_0.7\project\src\TweenComponent.cpp(46,13):
+              see the first reference to 'std::function<float (float)>::function' in 'ScrapGameEngine::getEasingFunction'
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(1023,13):
+          see reference to function template instantiation 'void std::_Func_class<_Ret,float>::_Reset<_Ty>(_Fx &&)' being compiled
+          with
+          [
+              _Ret=float,
+              _Ty=ScrapGameEngine::getEasingFunction::<lambda_8>,
+              _Fx=ScrapGameEngine::getEasingFunction::<lambda_8>
+          ]
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(896,23):
+          see reference to variable template 'const bool _Is_large<std::_Func_impl_no_alloc<`ScrapGameEngine::getEasingFunction'::`4'::<lambda_8>,float,float> >' being compiled
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(698,1):
+          see reference to class template instantiation 'std::_Func_impl_no_alloc<ScrapGameEngine::getEasingFunction::<lambda_8>,_Ret,float>' being compiled
+          with
+          [
+              _Ret=float
+          ]
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\functional(806,9):
+          while compiling class template member function '_Rx std::_Func_impl_no_alloc<ScrapGameEngine::getEasingFunction::<lambda_8>,_Rx,float>::_Do_call(float &&)'
+          with
+          [
+              _Rx=float
+          ]
+  
+  main.cpp
+  Generating Code...
+  xbgt3124_t03.vcxproj -> D:\Assigments\Year3\Sem2\Game Engine Architecture\ScrapGameEngine_0.7\ScrapGameEngine_0.7\project\build\ScrapGameEngine_debug.exe

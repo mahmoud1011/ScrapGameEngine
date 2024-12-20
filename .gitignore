@@ -16,6 +16,22 @@
 *.dylib
 *.dll
 
+# Visual Studio files
+.vscode/
+.vs/
+__pycache__/
+thumbs.db
+ehthumbs.db
+
+# Mac specific files
+.DS_Store
+*.DS_Store
+
+# Xcode project files
+build/
+*.xcodeproj/
+*.xcworkspace/
+
 # Fortran module files
 *.mod
 *.smod
