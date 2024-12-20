@@ -28,22 +28,19 @@ engine.initialize();
 // Create a new scene
 auto scene = engine.createScene("MainMenu");
 
-// Add a sprite to the scene
-auto sprite = engine.createSprite("player.png");
-scene.add(sprite);
-
 ```
 ### Create a new game object
 ```cpp
-auto gameObject = engine.createGameObject("Player");
+auto* gameObject = GameObject::Create("Player");
 
 // Add a SpriteRenderer to display the game object's sprite
-auto spriteRenderer = gameObject.addComponent<SpriteRenderer>();
+auto* spriteRenderer = gameObject.addComponent<SpriteRenderer>();
 spriteRenderer.setTexture("player.png");
 spriteRenderer.setColor({1.0f, 1.0f, 1.0f, 1.0f});
 
-// Add the game object to the scene
-scene.add(gameObject);
+gameObject->runRenderComponent;
+gameObject->runUpdateComponent
+
 ```
 ### Creating a Mesh
 ```cpp
@@ -54,7 +51,7 @@ std::vector<Vertex> vertices = {
     Vertex({ 0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f }),
     Vertex({ -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f })
 };
-auto mesh = engine.createMesh(vertices);
+auto mesh = MeshAllocater->getMesh(vertices);
 ```
 
 ### Creating a Texture2D
@@ -66,27 +63,24 @@ cfg.wrapModeY = TextureWrapMode::CLAMP_TO_BORDER;
 cfg.filterMode = TextureFilterMode::NEAREST;
 cfg.borderColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
-// Load a texture
-auto texture = engine.createTexture("player.png", cfg);
+// Load a texture with path
+auto* texture = TextureAllocater->getTexture("../assets/Assets/Test.png", cfg);
 ```
 
 ### Using SpriteRenderer
 ```cpp
 // Add a SpriteRenderer to a game object
-auto gameObject = engine.createGameObject("Player");
-auto spriteRenderer = gameObject.addComponent<SpriteRenderer>();
-spriteRenderer.setTexture("player.png");
+auto* gameObject = GameObject::Create("Player");
+auto* spriteRenderer = gameObject.addComponent<SpriteRenderer>();
+spriteRenderer.setTexture(texture2D);
 spriteRenderer.setColor({1.0f, 1.0f, 1.0f, 1.0f});
 
-// Add the game object to the scene
-scene.add(gameObject);
 ```
 
 ### Using Scheduler Task
 ```cpp
 // Schedule an action to move the game object after 2 seconds
-auto scheduler = engine.getScheduler();
-scheduler.schedule([&]() {
+scheduler.delayedtask([&]() {
     gameObject.transform->setPosition({ 1.0f, 0.0f });
 }, 2.0f);
 ```
