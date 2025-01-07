@@ -18,28 +18,12 @@ ScrapGameEngine is a versatile 2D game engine written in C++. It provides a robu
 - **irrKlang**: This library is used for sound and music playback, providing the engine with the ability to play background music, sound effects, and manage audio assets efficiently. `irrKlang` integrates well with ScrapGameEngine, allowing developers to add immersive audio experiences to their games with minimal setup.
 
 ## Example Usage
-
-### Creating a New Scene
-```cpp
-// Initialize and configure the game engine
-ScrapGameEngine engine;
-engine.initialize();
-
-// Create a new scene
-auto scene = engine.createScene("MainMenu");
-
-```
 ### Create a new game object
 ```cpp
 auto* gameObject = GameObject::Create("Player");
 
-// Add a SpriteRenderer to display the game object's sprite
-auto* spriteRenderer = gameObject.addComponent<SpriteRenderer>();
-spriteRenderer.setTexture("player.png");
-spriteRenderer.setColor({1.0f, 1.0f, 1.0f, 1.0f});
-
 gameObject->runRenderComponent;
-gameObject->runUpdateComponent
+gameObject->runUpdateComponent;
 
 ```
 ### Creating a Mesh
@@ -72,6 +56,7 @@ auto* texture = TextureAllocater->getTexture("../assets/Assets/Test.png", cfg);
 // Add a SpriteRenderer to a game object
 auto* gameObject = GameObject::Create("Player");
 auto* spriteRenderer = gameObject.addComponent<SpriteRenderer>();
+sptiteRenderer.Init()
 spriteRenderer.setTexture(texture2D);
 spriteRenderer.setColor({1.0f, 1.0f, 1.0f, 1.0f});
 
@@ -86,4 +71,6 @@ scheduler.delayedtask([&]() {
 ```
 
 ### Summary
-This README provides a comprehensive overview of ScrapGameEngine and demonstrates how to create scenes, game objects, meshes, textures, and utilize the scheduler effectively.
+This README provides a comprehensive overview of ScrapGameEngine and demonstrates how to create scenes, game objects, meshes, textures, and utilize the scheduler effectively. 
+
+More documents to come soon!
