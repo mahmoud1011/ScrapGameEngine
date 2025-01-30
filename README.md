@@ -74,3 +74,6 @@ scheduler.delayedtask([&]() {
 This README provides a comprehensive overview of ScrapGameEngine and demonstrates how to create scenes, game objects, meshes, textures, and utilize the scheduler effectively. 
 
 More documents to come soon!
+
+### License
+[MIT license](LICENSE)
