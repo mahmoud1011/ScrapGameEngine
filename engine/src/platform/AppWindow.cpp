@@ -1,6 +1,6 @@
 #include "platform/AppWindow.h"
 #include <glad/glad.h>
-#include <glfw/glfw3.h>
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <iostream>
 using namespace ScrapGameEngine;

@@ -1,6 +1,6 @@
 #include "platform/Input.h"
 #include "platform/AppWindow.h"
-#include <glfw/glfw3.h>
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <iostream>
 

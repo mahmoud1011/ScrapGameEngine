@@ -136,7 +136,11 @@ namespace ScrapGameEngine
                 gameObject->transform->setScale(currentValue);
                 break;
 
+            // Cases that declare locals are braced: without a scope of their own the
+            // declarations stay live across later case labels, and jumping past an
+            // initialisation is ill-formed. MSVC allows it, clang and gcc reject it.
             case TweenType::ROTATION:
+            {
                 // Interpolate each rotation angle individually.
                 glm::vec3 currentRotation{};
                 currentRotation.x = glm::mix(glm::radians(startValue.x), glm::radians(endValue.x), t);
@@ -149,12 +153,14 @@ namespace ScrapGameEngine
                 // Assuming the setRotation function takes a float y-axis rotation.
                 gameObject->transform->setRotation(currentValue.y);
                 break;
+            }
 
             case TweenType::FADE:
                 currentValue = glm::mix(glm::vec3(startValue.x, startValue.y, 0.0f), glm::vec3(endValue.x, endValue.y, 1.0f), t); // Interpolate for fade effect.
                 break;
 
             case TweenType::COLOR:
+            {
                 currentValue = glm::mix(startValue, endValue, t); // Interpolate color.
 
                 auto spriteRenderer = gameObject->getComponent<SpriteRenderer>();
@@ -165,10 +171,11 @@ namespace ScrapGameEngine
                 }
                 else if (button)
 				{
-                    button->setColor(glm::vec4(currentValue, 1.0f)); 
+                    button->setColor(glm::vec4(currentValue, 1.0f));
 				}
 
                 break;
+            }
             }
         }
     }
