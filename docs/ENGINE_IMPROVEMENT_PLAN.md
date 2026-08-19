@@ -1,7 +1,7 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: **Phase 0 complete.** Phase 1 next.
+Status: **Phases 0 and 1 complete.** Phase 2 (the editor) next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
 
 Platform targets: Windows, macOS and Linux first; Android and iOS once the render
@@ -307,18 +307,43 @@ Three things came up that were not in the original plan:
 `editor/` and `runtime/` are not scaffolded yet; they arrive in Phases 2 and 6 with
 actual content rather than as empty targets.
 
-### Phase 1 — Modern GL core + RHI ← **next**
+### Phase 1 — Modern GL core + RHI ✅ **Complete**
 
 > *Goal: identical output, but through shaders. Prerequisite for everything else.*
 
-- GLFW core-profile 3.3 context (currently hinted to 2.1 in `AppWindow::init`)
-- `rhi/`: Shader, VertexBuffer, IndexBuffer, VertexArray, Texture2D, Framebuffer, RenderCommand
-- `Renderer2D` batched; port `SpriteRenderer` and `Text` onto it
-- Camera becomes ortho **and** perspective capable; depth buffer enabled
+- [x] glad regenerated for **GL 3.3 core**; the vendored loader only reached 2.1 on the compatibility profile
+- [x] GLFW core-profile 3.3 context, forward-compat on macOS
+- [x] `rhi/`: Shader, VertexBuffer, IndexBuffer, VertexArray, Framebuffer
+- [x] `Renderer2D` batched; `SpriteRenderer` and the HoverSensor debug boxes ported onto it
+- [x] Camera is ortho **and** perspective capable; depth buffer enabled
 
-**Exit criteria:** sandbox renders as it did in 0.7, 10k sprites hold 60fps, every draw goes through a shader, and the frame lands in an FBO.
+**Exit criteria — mostly met.** Verified on an RTX 3070 Ti: a 3.3.0 core context comes
+up, the sandbox renders its load scene correctly through the shader path with nothing on
+stderr, and the frame lands in a `Framebuffer` before being blitted to the window. Every
+draw goes through a shader — the fixed-function entry points no longer exist in the
+loader, so any survivor would be a compile error.
 
-### Phase 2 — The Editor *(your "interface first")*
+**Not verified: the 10k-sprites-at-60fps target.** No benchmark scene exists yet, and the
+sandbox draws only a handful of quads. The batching is implemented (one dynamic VBO, a
+16-slot texture array, one draw call per batch) but its throughput is unmeasured. A
+stress scene belongs in Phase 2 alongside the editor's stats panel, which is where the
+draw-call and quad counters already plumbed through `Renderer::getDrawCallCount` will
+surface.
+
+Notes on what Phase 1 turned up:
+
+- **`Text::render()` was empty.** Text rendering was never implemented in 0.7 — the
+  FreeType glyph atlas loads but nothing draws it. Porting it is now Phase 2 work, not
+  a regression.
+- **`Mesh` and `MeshAllocator` are effectively vestigial.** Every sprite was a unit quad
+  and the batcher generates that geometry itself, so `Graphics::drawMesh` ignores its
+  mesh argument. They stay until Renderer3D gives real meshes a purpose.
+- **Three portability bugs surfaced** the moment CI compiled with clang and gcc:
+  `<glfw/glfw3.h>` (the header is `GLFW/`), backslash include separators in
+  `Graphics.h`, and `switch` cases declaring locals without a scope. All three were
+  pre-existing and invisible under MSVC alone.
+
+### Phase 2 — The Editor ← **next** *(your "interface first")*
 
 > *Goal: a real editor window you can select and move things in.*
 
@@ -326,6 +351,8 @@ actual content rather than as empty targets.
 - Panels: Viewport (draws the Phase-1 FBO), Hierarchy, Inspector, Content Browser, Console (log sink), Stats
 - `EditorCamera` — orbit/fly, fully independent of the game camera
 - Mouse picking via an entity-ID attachment readback
+- A stress scene plus a stats panel, to finally measure the Phase 1 batching throughput
+- Port `Text` rendering, which was never actually implemented
 
 **Exit criteria:** select an entity in the hierarchy, edit its components in the inspector, and drag it with a gizmo.
 
