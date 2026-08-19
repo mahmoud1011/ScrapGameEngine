@@ -46,6 +46,13 @@ namespace ScrapGameEngine
          * @param _mesh Pointer to the mesh to be drawn.
          * @param params The rendering parameters to apply to the mesh.
          */
+        /**
+         * @brief Submits a quad for the mesh. The mesh argument is ignored.
+         * @deprecated Use drawQuad; the batcher generates quad geometry itself.
+         */
         static void drawMesh(Mesh* _mesh, RenderParams params);
+
+        /** @brief Submits a quad described entirely by its render parameters. */
+        static void drawQuad(RenderParams params);
     };
 }

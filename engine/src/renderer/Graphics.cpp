@@ -1,22 +1,29 @@
 #include "renderer/Graphics.h"
 #include "renderer/Renderer.h"
-#include <iostream>
 
-void ScrapGameEngine::Graphics::drawMesh(Mesh* _mesh, RenderParams params)
+void ScrapGameEngine::Graphics::drawMesh(Mesh* /*mesh*/, RenderParams params)
 {
+    // The mesh argument is vestigial: every sprite was a unit quad, and the batcher
+    // now generates that geometry itself. Kept so existing call sites still compile;
+    // it disappears when SpriteRenderer stops allocating a per-sprite Mesh.
     DrawCommand dc{};
-    dc.meshId = _mesh->getID();
-    dc.vertexStride = sizeof(Vertex);
-    dc.vertexCount = _mesh->getVertexCount();
     dc.tint = params.tint;
-	dc.translation = params.translation;
-	dc.rotationZ = params.rotationZ;
-	dc.scale = params.scale;
+    dc.translation = params.translation;
+    dc.rotationZ = params.rotationZ;
+    dc.scale = params.scale;
+    dc.texture = params.texture;
 
-    // Get the texture ID from the RenderParams
-    dc.textureID = params.texture ? params.texture->getID() : 0; // Use texture ID or 0 if no texture
-
-    Renderer::submitCommand(dc); // Submit the draw command
+    Renderer::submitCommand(dc);
 }
 
+void ScrapGameEngine::Graphics::drawQuad(RenderParams params)
+{
+    DrawCommand dc{};
+    dc.tint = params.tint;
+    dc.translation = params.translation;
+    dc.rotationZ = params.rotationZ;
+    dc.scale = params.scale;
+    dc.texture = params.texture;
 
+    Renderer::submitCommand(dc);
+}

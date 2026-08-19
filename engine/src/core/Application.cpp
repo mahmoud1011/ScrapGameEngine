@@ -54,8 +54,14 @@ void Application::processWindowEvent(AppWindowEventType eventType, void* payload
 
 void Application::run()
 {
-    Renderer::setClearColor(0.25, 0.25, 0.25, 1.0);
-    Renderer::init();
+    Renderer::setClearColor(0.25f, 0.25f, 0.25f, 1.0f);
+    if (!Renderer::init(static_cast<unsigned int>(windowData.width),
+                        static_cast<unsigned int>(windowData.height)))
+    {
+        std::cerr << "[FRAMEWORK] Renderer failed to initialise - aborting run." << std::endl;
+        cleanup();
+        return;
+    }
 
     CameraConfig cfg;
     Camera::init(cfg, windowData.width, windowData.height);
@@ -94,6 +100,7 @@ void Application::run()
     TextureAllocator::releaseUnusedTextures();
 
     SceneStateMachine::dispose();
+    Renderer::shutdown();
 
     cleanup();
 }

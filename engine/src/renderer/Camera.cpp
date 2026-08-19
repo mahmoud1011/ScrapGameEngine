@@ -1,139 +1,135 @@
 #include "renderer/Camera.h"
+
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// Define static Camera variables
-glm::mat4 ScrapGameEngine::Camera::projection = glm::mat4(1.0f);  // Identity matrix as default
-glm::mat4 ScrapGameEngine::Camera::view = glm::mat4(1.0f);        // Identity matrix as default
-glm::mat4 ScrapGameEngine::Camera::vp = glm::mat4(1.0f);          // Identity matrix as default
-glm::vec3 ScrapGameEngine::Camera::position = glm::vec3(0.0f);    // Default position is origin
-float ScrapGameEngine::Camera::aspectRatio = 1.0f;                // Default aspect ratio is 1.0
-ScrapGameEngine::CameraConfig ScrapGameEngine::Camera::config = {};  // Default configuration
-bool ScrapGameEngine::Camera::isDirty = true;                     // Initially set to true
-
-void ScrapGameEngine::Camera::init(CameraConfig cfg, int width, int height)
+namespace ScrapGameEngine
 {
-	Camera::config = cfg;
-	Camera::recalculate(width, height);
-}
+    glm::mat4 Camera::projection{1.0f};
+    glm::mat4 Camera::view{1.0f};
+    glm::mat4 Camera::vp{1.0f};
+    glm::vec3 Camera::position{0.0f};
+    float Camera::aspectRatio = 1.0f;
+    int Camera::viewportWidth = 1;
+    int Camera::viewportHeight = 1;
+    CameraConfig Camera::config{};
+    bool Camera::isDirty = true;
 
-void ScrapGameEngine::Camera::recalculate(int width, int height)
-{
-	Camera::aspectRatio = width / (float)height;
+    void Camera::init(CameraConfig cfg, int width, int height)
+    {
+        config = cfg;
+        recalculate(width, height);
+    }
 
-	// Use orthoSize to modify maxY based on the config
-	float maxY = Camera::config.orthoSize;
-	float maxX = maxY * Camera::aspectRatio;
-	float minZ = -1.0f;
-	float maxZ = 1.0f;
+    void Camera::recalculate(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return;
 
-	// Set the orthographic projection matrix with custom orthoSize
-	Camera::projection = glm::ortho(-maxX, maxX, -maxY, maxY, minZ, maxZ);
-	Camera::isDirty = true;  // Projection matrix changed, mark as dirty
-}
+        viewportWidth = width;
+        viewportHeight = height;
+        aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+        rebuildProjection();
+    }
 
-float ScrapGameEngine::Camera::getAspectRatio()
-{
-	return Camera::aspectRatio;
-}
+    void Camera::rebuildProjection()
+    {
+        if (config.projectionType == ProjectionType::Perspective)
+        {
+            projection = glm::perspective(glm::radians(config.fovDegrees), aspectRatio,
+                                          config.perspectiveNear, config.perspectiveFar);
+        }
+        else
+        {
+            const float maxY = config.orthoSize;
+            const float maxX = maxY * aspectRatio;
+            projection = glm::ortho(-maxX, maxX, -maxY, maxY, config.orthoNear, config.orthoFar);
+        }
+        isDirty = true;
+    }
 
-// Get current orthographic size
-float ScrapGameEngine::Camera::getOrthoSize() const
-{
-	return Camera::config.orthoSize;
-}
+    void Camera::rebuildViewIfDirty()
+    {
+        if (!isDirty) return;
 
-glm::mat4 ScrapGameEngine::Camera::getMatrix_projection()
-{
-	return Camera::projection;
-}
+        view = glm::inverse(glm::translate(glm::mat4(1.0f), position));
+        vp = projection * view;
+        isDirty = false;
+    }
 
-glm::mat4 ScrapGameEngine::Camera::getMatrix_view()
-{
-	// If the view matrix is dirty, recalculate it
-	if (Camera::isDirty)
-	{
-		// Recalculate the view matrix by translating by the negative position (inverse translation)
-		Camera::view = glm::inverse(glm::translate(glm::mat4(1.0f), Camera::position));
+    float Camera::getAspectRatio() { return aspectRatio; }
+    float Camera::getOrthoSize() { return config.orthoSize; }
+    ProjectionType Camera::getProjectionType() { return config.projectionType; }
+    glm::vec3 Camera::getPosition() { return position; }
 
-		// Recalculate view-projection (vp) matrix
-		Camera::vp = Camera::projection * Camera::view;
+    void Camera::setProjectionType(ProjectionType type)
+    {
+        if (config.projectionType == type) return;
+        config.projectionType = type;
+        rebuildProjection();
+    }
 
-		// Reset the dirty flag
-		Camera::isDirty = false;
-	}
+    void Camera::setOrthoSize(float size)
+    {
+        config.orthoSize = size;
+        if (config.projectionType == ProjectionType::Orthographic) rebuildProjection();
+    }
 
-	return Camera::view;
-}
+    void Camera::setFieldOfView(float degrees)
+    {
+        config.fovDegrees = degrees;
+        if (config.projectionType == ProjectionType::Perspective) rebuildProjection();
+    }
 
-glm::mat4 ScrapGameEngine::Camera::getMatrix_viewProjection()
-{
-	// If the view matrix is dirty, recalculate it
-	if (Camera::isDirty)
-	{
-		// Recalculate the view matrix by translating by the negative position
-		Camera::view = glm::inverse(glm::translate(glm::mat4(1.0f), Camera::position));
+    glm::mat4 Camera::getMatrix_projection() { return projection; }
 
-		// Recalculate view-projection matrix (projection * view)
-		Camera::vp = Camera::projection * Camera::view;
+    glm::mat4 Camera::getMatrix_view()
+    {
+        rebuildViewIfDirty();
+        return view;
+    }
 
-		// Reset the dirty flag
-		Camera::isDirty = false;
-	}
+    glm::mat4 Camera::getMatrix_viewProjection()
+    {
+        rebuildViewIfDirty();
+        return vp;
+    }
 
-	return Camera::vp;
-}
+    void Camera::translate(glm::vec3 translation)
+    {
+        position += translation;
+        isDirty = true;
+    }
 
-void ScrapGameEngine::Camera::translate(glm::vec3 translation)
-{
-	Camera::position += translation;
+    void Camera::translate(float x, float y, float z)
+    {
+        translate(glm::vec3(x, y, z));
+    }
 
-	// Mark the matrix as dirty to force recalculation
-	Camera::isDirty = true;
-}
+    void Camera::setPosition(glm::vec3 value)
+    {
+        position = value;
+        isDirty = true;
+    }
 
-void ScrapGameEngine::Camera::translate(float x, float y, float z)
-{
-	Camera::position += glm::vec3(x, y, z);
-	Camera::isDirty = true;
-}
+    void Camera::setPosition(float x, float y, float z)
+    {
+        setPosition(glm::vec3(x, y, z));
+    }
 
-void ScrapGameEngine::Camera::setPosition(glm::vec3 position)
-{
-	// Set the camera's position
-	Camera::position = position;
-	Camera::isDirty = true;
-}
+    glm::vec3 Camera::screenToWorld(glm::vec2 screenPos)
+    {
+        rebuildViewIfDirty();
 
-void ScrapGameEngine::Camera::setPosition(float x, float y, float z)
-{
-	// Set the camera's position using float parameters
-	Camera::position = glm::vec3(x, y, z);
-	Camera::isDirty = true;
-}
+        // Screen origin is top-left, NDC origin is centre with +Y up, hence the flip.
+        const float normX = 2.0f * (screenPos.x / static_cast<float>(viewportWidth)) - 1.0f;
+        const float normY = -(2.0f * (screenPos.y / static_cast<float>(viewportHeight)) - 1.0f);
 
-glm::vec3 ScrapGameEngine::Camera::screenToWorld(glm::vec2 screenPos)
-{
-	// TODO:: Get screen width and height 
-	int screenWidth = 600; // update this with the actual screen width
-	int screenHeight = 600; // update this with the actual screen height
+        const glm::vec4 ndc(normX, normY, 0.0f, 1.0f);
+        glm::vec4 world = glm::inverse(vp) * ndc;
 
-	// Normalize screenPos to the -1 to 1 range based on screen width and height
-	float normX = 2.0f * (screenPos.x / (float)screenWidth) - 1.0f;
-	float normY = 2.0f * (screenPos.y / (float)screenHeight) - 1.0f;
+        // Perspective divide is a no-op under ortho (w stays 1) but required otherwise.
+        if (world.w != 0.0f) world /= world.w;
 
-	// Flip Y-axis because screen coordinates typically have the origin at the top-left corner
-	normY = -normY;
-
-	// Create a homogeneous vector with z = 0 for 2D projection (z = 0, w = 1)
-	glm::vec4 ndcPos(normX, normY, 0.0f, 1.0f);
-
-	// Inverse of the view-projection matrix
-	glm::mat4 vpInv = glm::inverse(vp);
-
-	// Convert NDC to world space
-	glm::vec4 worldPos = vpInv * ndcPos;
-
-	// Return the x, y coordinates in world space, and set z to 0
-	return glm::vec3(worldPos.x, worldPos.y, 0.0f);
+        return glm::vec3(world.x, world.y, world.z);
+    }
 }

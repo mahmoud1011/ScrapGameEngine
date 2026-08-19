@@ -8,37 +8,25 @@ ScrapGameEngine::SpriteRenderer::SpriteRenderer(GameObject* owner)
 
 void ScrapGameEngine::SpriteRenderer::awake()
 {
-    std::vector<ScrapGameEngine::Vertex> vertices;
-
-    vertices.push_back(ScrapGameEngine::Vertex({ -0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f }));
-    vertices.push_back(ScrapGameEngine::Vertex({ -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f }));
-    vertices.push_back(ScrapGameEngine::Vertex({ 0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f }));
-
-    vertices.push_back(ScrapGameEngine::Vertex({ 0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f }));
-    vertices.push_back(ScrapGameEngine::Vertex({ 0.5f, 0.5f, 0.0f }, { 1.0f, 1.0f }));
-    vertices.push_back(ScrapGameEngine::Vertex({ -0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f }));
-
-    _mesh = new ScrapGameEngine::Mesh(vertices);
+    // Nothing to allocate: the batcher builds quad geometry, so a sprite no longer
+    // owns a Mesh of its own. This used to create a six-vertex VBO per sprite.
 }
 
 
 void ScrapGameEngine::SpriteRenderer::render()
 {
-    //Replacements from GameObject to TransformComponent
-    float x = gameObject->transform->getPosition().x;
-    float y = gameObject->transform->getPosition().y;
-    float rotation = gameObject->transform->getLocalRotation();
-    glm::vec2 scale = gameObject->transform->getLocalScale();
+    const glm::vec2 position = gameObject->transform->getPosition();
+    const float rotation = gameObject->transform->getLocalRotation();
+    const glm::vec2 scale = gameObject->transform->getLocalScale();
 
-    // Calculate RenderParams
     RenderParams params{};
     params.tint = { _color, _opacity };
-    params.translation = { x * _pivot.x, y * _pivot.y, 0.0f };
+    params.translation = { position.x * _pivot.x, position.y * _pivot.y, 0.0f };
     params.rotationZ = rotation;
     params.scale = { scale.x * _size.x, scale.y * _size.y, 1.0f };
     params.texture = _texture;
 
-    Graphics::drawMesh(_mesh, params);
+    Graphics::drawQuad(params);
 }
 
 

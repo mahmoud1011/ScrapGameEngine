@@ -1,106 +1,67 @@
 #pragma once
-#include <glm/glm.hpp> // Include GLM for vector and matrix types
-#include <glm/mat4x4.hpp>
-#include <vector>
+
+#include <glm/glm.hpp>
 
 namespace ScrapGameEngine
 {
+    class Texture2D;
+    class Framebuffer;
+
     /**
      * @struct DrawCommand
-     * @brief Represents a single draw command for rendering a mesh.
+     * @brief A single quad submission.
      *
-     * This structure contains all the information necessary to render a mesh,
-     * including its transformation, color, texture, and more.
+     * Kept as the submission shape Graphics::drawMesh produces, but it no longer
+     * describes a mesh binding - the batcher generates the geometry, so only the
+     * transform, tint and texture matter.
      */
     struct DrawCommand
     {
-        unsigned int meshId;         /**< ID of the mesh to draw. */
-        unsigned int vertexStride;   /**< Size of each vertex in bytes. */
-        unsigned int vertexCount;    /**< Number of vertices to draw. */
-        glm::vec4 tint;              /**< Tint color for the mesh (RGBA). */
-        glm::vec3 translation;       /**< Position to translate the mesh. */
-        float rotationZ;             /**< Rotation angle around Z-axis in degrees. */
-        glm::vec3 scale;             /**< Scale factors (x, y, z). */
-        unsigned int textureID;      /**< ID of the texture to use. */
-        glm::mat4 modelMatrix;       /**< Model transformation matrix. */
+        glm::vec4 tint{1.0f};
+        glm::vec3 translation{0.0f};
+        float rotationZ = 0.0f;
+        glm::vec3 scale{1.0f};
+        Texture2D* texture = nullptr;
     };
 
     /**
      * @class Renderer
-     * @brief A static class responsible for handling rendering operations.
+     * @brief Frame lifecycle and render state.
      *
-     * The Renderer class provides methods for initializing the rendering system,
-     * submitting draw commands, and managing frame rendering. It operates as a
-     * static utility to ensure consistent rendering throughout the application.
+     * Owns the offscreen target every frame is drawn into, then blits it to the
+     * window. The runtime pays a blit for that; in exchange the editor can hand the
+     * same colour attachment to a viewport panel without the renderer knowing.
      */
     class Renderer
     {
-    private:
-        Renderer() = delete; /**< Deleted constructor to enforce static usage. */
-
-        static std::vector<DrawCommand> draws; /**< Collection of draw commands to process. */
-        static bool isRendering;               /**< Flag indicating whether rendering is active. */
-        static glm::mat4 vpMatrix;             /**< View-projection matrix for rendering. */
-
     public:
-        /**
-         * @brief Initializes the Renderer system.
-         *
-         * Sets up necessary resources for rendering operations.
-         */
-        static void init();
+        Renderer() = delete;
 
-        /**
-         * @brief Submits a draw command to the Renderer.
-         * @param dc The draw command to submit.
-         *
-         * The draw command will be processed during the current frame rendering.
-         */
-        static void submitCommand(DrawCommand dc);
+        /** @brief Brings up render state, the batcher and the scene target. */
+        static bool init(unsigned int width, unsigned int height);
+        static void shutdown();
 
-        /**
-         * @brief Begins a new frame for rendering.
-         *
-         * Prepares the Renderer for processing draw commands and rendering a frame.
-         */
+        /** @brief Binds the scene target and starts a batch. */
         static void beginFrame();
 
-        /**
-         * @brief Ends the current frame and executes all submitted draw commands.
-         *
-         * Finalizes the frame and sends all draw commands to the GPU for rendering.
-         */
+        /** @brief Flushes the batch and blits the scene target to the window. */
         static void endFrame();
 
-        /**
-         * @brief Loads necessary resources or configurations.
-         * @return An integer indicating the result of the load operation.
-         */
-        static int load();
+        /** @brief Queues a quad. Only valid between beginFrame and endFrame. */
+        static void submitCommand(const DrawCommand& dc);
 
-        /**
-         * @brief Sets the viewport dimensions for rendering.
-         * @param x The x-coordinate of the viewport origin.
-         * @param y The y-coordinate of the viewport origin.
-         * @param width The width of the viewport in pixels.
-         * @param height The height of the viewport in pixels.
-         */
         static void setViewport(int x, int y, int width, int height);
-
-        /**
-         * @brief Sets the clear color for the Renderer.
-         * @param r The red component (0.0 to 1.0).
-         * @param g The green component (0.0 to 1.0).
-         * @param b The blue component (0.0 to 1.0).
-         * @param a The alpha component (0.0 to 1.0).
-         */
         static void setClearColor(float r, float g, float b, float a);
-
-        /**
-         * @brief Clears the rendering buffers.
-         *
-         * Clears the screen using the set clear color, preparing it for the next frame.
-         */
         static void clear();
+
+        /** @brief The offscreen target the frame is drawn into. */
+        static Framebuffer& getSceneTarget();
+
+        static unsigned int getDrawCallCount();
+        static unsigned int getQuadCount();
+
+    private:
+        static bool isRendering;
+        static glm::vec4 clearColor;
     };
 }

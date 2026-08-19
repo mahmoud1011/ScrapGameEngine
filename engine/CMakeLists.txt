@@ -16,6 +16,7 @@ add_library(ScrapEngine STATIC
     src/renderer/Mesh.cpp
     src/renderer/MeshAllocator.cpp
     src/renderer/Renderer.cpp
+    src/renderer/Renderer2D.cpp
     src/renderer/SpriteRenderer.cpp
     src/renderer/Text.cpp
     src/renderer/Texture2D.cpp
@@ -28,6 +29,11 @@ add_library(ScrapEngine STATIC
     src/scene/SceneStateMachine.cpp
     src/scene/Transform.cpp
     src/scene/TweenComponent.cpp
+
+    src/rhi/Buffer.cpp
+    src/rhi/Framebuffer.cpp
+    src/rhi/Shader.cpp
+    src/rhi/VertexArray.cpp
 
     src/ui/Button.cpp
 

@@ -62,26 +62,38 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Export vcpkg root
-        shell: bash
-        run: echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
-
-      # The runners ship a preinstalled vcpkg pinned to whatever commit was current
-      # when the image was built, which is usually older than our builtin-baseline.
-      # vcpkg resolves the baseline with `git show <sha>:versions/baseline.json`, so
-      # the commit object has to be present locally - a shallow fetch of just that
-      # commit is enough, and no checkout is needed.
-      - name: Fetch the pinned vcpkg baseline
+      # The runners ship a preinstalled vcpkg whose ports/ tree sits at whatever
+      # revision the image was built from. Fetching only our baseline commit is not
+      # enough: vcpkg then reads port recipes from the checked-out tree but versions
+      # from the baseline, and rejects the mismatch ("no version database entry for
+      # glfw3 at ..."). Checking out the baseline itself keeps ports and versions
+      # consistent, and pins CI to exactly the toolchain the manifest names.
+      - name: Check out the pinned vcpkg
         shell: bash
         run: |
           BASELINE=$(jq -r '."builtin-baseline"' vcpkg.json)
-          echo "Fetching vcpkg baseline $BASELINE"
-          git -C "$VCPKG_INSTALLATION_ROOT" fetch --depth 1 origin "$BASELINE"
+          echo "Pinning vcpkg to $BASELINE"
+          git init -q "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
+          git -C "$RUNNER_TEMP/vcpkg" fetch -q --depth 1 origin "$BASELINE"
+          git -C "$RUNNER_TEMP/vcpkg" checkout -q FETCH_HEAD
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-cache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vcpkg-cache"
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          else
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
 
       - name: Cache vcpkg binaries
         uses: actions/cache@v4
         with:
-          path: ~/.cache/vcpkg/archives
+          path: ${{ runner.temp }}/vcpkg-cache
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-
 

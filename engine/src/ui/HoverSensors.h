@@ -2,7 +2,7 @@
 #include "core/Signal.h"
 #include "platform/Input.h"
 #include "renderer/Camera.h"
-#include <glad/glad.h>
+#include "renderer/Graphics.h"
 
 /**
  * @brief Represents a sensor for detecting hover events.
@@ -90,26 +90,17 @@ public:
      */
     void render()
     {
-        glPushMatrix();
-        glTranslatef(positionX, positionY, 0);
+        // Was immediate mode (glBegin/glVertex3f), which does not exist in a core
+        // profile. Now a single batched quad, so debug sensors cost no extra draw call.
+        const glm::vec4& rgba = isHovered ? hoverColor : buttonColor;
 
-        // Set color based on hover state
-        if (isHovered)
-        {
-            glColor4f(hoverColor.r, hoverColor.g, hoverColor.b, boxOpacity);
-        }
-        else
-        {
-            glColor4f(buttonColor.r, buttonColor.g, buttonColor.b, boxOpacity);
-        }
+        ScrapGameEngine::RenderParams params{};
+        params.tint = { rgba.r, rgba.g, rgba.b, boxOpacity };
+        params.translation = { positionX, positionY, 0.0f };
+        params.rotationZ = 0.0f;
+        params.scale = { halfWidth * 2.0f, halfHeight * 2.0f, 1.0f };
+        params.texture = nullptr;
 
-        // Draw the sensor as a rectangle
-        glBegin(GL_QUADS);
-        glVertex3f(-halfWidth, +halfHeight, 0);
-        glVertex3f(-halfWidth, -halfHeight, 0);
-        glVertex3f(+halfWidth, -halfHeight, 0);
-        glVertex3f(+halfWidth, +halfHeight, 0);
-        glEnd();
-        glPopMatrix();
+        ScrapGameEngine::Graphics::drawQuad(params);
     }
 };

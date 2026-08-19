@@ -33,9 +33,16 @@ int AppWindow::init(AppWindowData data)
     // cache the window data
     windowData = data;
 
-    // set window context to OpenGL 2.1
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    // OpenGL 3.3 core. This is the highest version Windows, macOS and Linux all
+    // provide - Apple deprecated GL in 2018 and caps at 4.1 - and it maps onto
+    // GLES 3.0 for a future Android backend.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    // macOS refuses to hand out a 3.3 core context without this.
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+#endif
 
     // try create the window
     GLFWwindow* window = glfwCreateWindow(
