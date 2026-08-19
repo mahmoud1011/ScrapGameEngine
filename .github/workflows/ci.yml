@@ -12,13 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Two paths are excluded on purpose. docs/ holds the improvement plan, which
-      # documents the cleanup and so necessarily names the identifiers it removed.
-      # This file is excluded because it would otherwise match its own pattern.
+      # Three paths are excluded, all for the same reason - they describe the cleanup
+      # rather than containing it. docs/ holds the improvement plan, graphify-out/
+      # holds the knowledge graph whose rationale text quotes the old identifiers, and
+      # this file defines the pattern it would otherwise match itself on.
       - name: Check for coursework identifiers
         run: |
           if git grep -nIiE "0130645|xbgt3124|ToGoGameEngine" \
-               -- . ':!docs/' ':!.github/workflows/ci.yml' ; then
+               -- . ':!docs/' ':!graphify-out/' ':!.github/workflows/ci.yml' ; then
             echo "::error::Coursework identifiers found. Everything is named ScrapEngine."
             exit 1
           fi
@@ -64,6 +65,18 @@ jobs:
       - name: Export vcpkg root
         shell: bash
         run: echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+
+      # The runners ship a preinstalled vcpkg pinned to whatever commit was current
+      # when the image was built, which is usually older than our builtin-baseline.
+      # vcpkg resolves the baseline with `git show <sha>:versions/baseline.json`, so
+      # the commit object has to be present locally - a shallow fetch of just that
+      # commit is enough, and no checkout is needed.
+      - name: Fetch the pinned vcpkg baseline
+        shell: bash
+        run: |
+          BASELINE=$(jq -r '."builtin-baseline"' vcpkg.json)
+          echo "Fetching vcpkg baseline $BASELINE"
+          git -C "$VCPKG_INSTALLATION_ROOT" fetch --depth 1 origin "$BASELINE"
 
       - name: Cache vcpkg binaries
         uses: actions/cache@v4
