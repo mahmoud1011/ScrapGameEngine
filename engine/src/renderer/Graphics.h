@@ -1,8 +1,8 @@
 #pragma once
 #include "renderer/Mesh.h"
 #include "renderer/Texture2D.h"
-#include <glm\vec4.hpp>
-#include <glm\vec3.hpp>
+#include <glm/vec4.hpp>
+#include <glm/vec3.hpp>
 
 namespace ScrapGameEngine
 {
