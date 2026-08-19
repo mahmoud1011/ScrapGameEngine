@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "scrapengine",
+  "version-string": "0.8.0",
+  "description": "A cross-platform 2D/3D game engine",
+  "homepage": "https://github.com/Anwar/ScrapEngine",
+  "builtin-baseline": "633a758f563dd0ff8a785242d32a664c0ad81369",
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "freetype",
+    "miniaudio"
+  ]
+}

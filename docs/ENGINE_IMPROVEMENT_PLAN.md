@@ -1,8 +1,12 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: design accepted, Phase 0 not yet started
+Status: **Phase 0 complete.** Phase 1 next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
+
+Platform targets: Windows, macOS and Linux first; Android and iOS once the render
+backend supports them. Reference workflow is Unity's — an editor that opens a project,
+edits scenes live, and builds standalone players from them.
 
 ---
 
@@ -182,7 +186,17 @@ Trade-off: `GameObject`, `GameObjectCollection` and `BaseComponent` get rewritte
 
 `rhi/` is a thin abstraction over Buffer / Texture / Shader / Framebuffer / Pipeline / RenderCommand, with an OpenGL backend. Above it sit `Renderer2D` (batched quads: one dynamic VBO, texture-slot array, one draw call per batch) and `Renderer3D` (forward, PBR-lite).
 
-Target **OpenGL 4.5 core**. Direct State Access makes the RHI meaningfully cleaner, and 4.5 is universally available on desktop GPUs from roughly 2014 onward. If you hit a machine that cannot provide it, 3.3 core is the fallback and the RHI shape does not change.
+Target **OpenGL 3.3 core**.
+
+> *Revised.* This decision originally said 4.5 core, for Direct State Access. That does
+> not survive the cross-platform requirement: Apple deprecated OpenGL in 2018 and caps
+> macOS at 4.1, so DSA (4.5) and compute shaders (4.3) are simply unavailable there.
+> 3.3 core is the highest version all three desktop platforms share, and it maps
+> cleanly onto GLES 3.0 for Android later. Cost: the RHI loses DSA and gets somewhat
+> more verbose in its bind-then-modify calls.
+
+iOS never gets an OpenGL path — it needs Metal. That is precisely the seam the RHI
+exists to provide, and the same seam Vulkan would use on Android and desktop.
 
 Both renderers draw into a `Framebuffer` rather than the default backbuffer. That one decision is what lets the editor show the game inside an ImGui panel, and it costs the runtime nothing.
 
@@ -258,25 +272,46 @@ git grep -iE "0130645|xbgt3124|ToGoGameEngine" && echo FAIL || echo clean
 
 Migration strategy is **strangler-fig, in place**: files move with `git mv` so history follows them, CMake builds the existing code first, and subsystems get modernised one at a time. The tree stays buildable at every commit.
 
-### Phase 0 — Foundation. No features.
+### Phase 0 — Foundation. No features. ✅ **Complete**
 
 > *Goal: it builds from a clean clone, and nothing is named after a student ID.*
 
-- Restructure into `engine/ editor/ runtime/ sandbox/` via `git mv`
-- CMake + `vcpkg.json`; delete `.vcxproj` / `.sln`
-- Purge every name in section 5; add the CI grep gate
-- Move `GameScene` / `MainMenuScene` / `SplashScreenScene` / `LoadScene` / `main.cpp` → `sandbox/`
-- Delete dead `ResourceManagementSystem.h` + `IResourceManager.h` (B9)
-- Fix B11 (member order) and B10 (busy-wait → `glfwSwapInterval`, or sleep-then-spin)
-- GitHub Actions building on `windows-latest`
+- [x] Restructure into `engine/ sandbox/ thirdparty/` via `git mv` (history preserved)
+- [x] CMake + `vcpkg.json` + `CMakePresets.json`; deleted `.vcxproj` / `.sln`
+- [x] Purged every name in section 5; CI grep gate added
+- [x] Moved `GameScene` / `MainMenuScene` / `SplashScreenScene` / `LoadScene` / `main.cpp` → `sandbox/`
+- [x] Deleted dead `ResourceManagementSystem.h` + `IResourceManager.h` (B9)
+- [x] Fixed B11 (member order) and B10 (busy-wait → sleep-then-spin)
+- [x] GitHub Actions building on Windows, macOS and Linux
 
-**Exit criteria:** `cmake -B build && cmake --build build` succeeds on a fresh clone on a machine that has never seen this project. Sandbox runs as before. `git grep -iE "0130645|xbgt3124"` returns nothing.
+**Exit criteria — met.** Configures and builds clean on Windows (MSVC 19.51, Ninja);
+`ScrapEngine.lib` and `Sandbox.exe` are separate artifacts, so B5 is closed. Sandbox
+runs, loads its textures and transitions scenes with no errors on stderr. The naming
+grep returns nothing outside `docs/`.
 
-### Phase 1 — Modern GL core + RHI
+Three things came up that were not in the original plan:
+
+- **Audio had to move in Phase 0, not Phase 5.** irrKlang's libraries were never in
+  the repo, so nothing could link on any platform. D8 was pulled forward: there is now
+  a shared `AudioDevice` plus a miniaudio-backed `AudioSource`. This also fixes a bug
+  where every `AudioSource` component constructed an entire sound engine of its own.
+- **`Time.h` was shadowing the C runtime's `<time.h>`.** With `engine/src/core` on the
+  include path, Windows' case-insensitive filesystem resolved `<ctime>`'s internal
+  `#include <time.h>` to our header, breaking every translation unit that touched
+  `<ctime>`. Engine includes are now module-qualified (`"core/Time.h"`) and only
+  `engine/src` is on the include path — an early down payment on the Phase 1
+  `<Scrap/...>` migration.
+- **`Application.cpp` was including `MainMenuScene.h`** — the engine directly including
+  a game scene. Removed as part of the engine/game split.
+
+`editor/` and `runtime/` are not scaffolded yet; they arrive in Phases 2 and 6 with
+actual content rather than as empty targets.
+
+### Phase 1 — Modern GL core + RHI ← **next**
 
 > *Goal: identical output, but through shaders. Prerequisite for everything else.*
 
-- GLFW core-profile 4.5 context
+- GLFW core-profile 3.3 context (currently hinted to 2.1 in `AppWindow::init`)
 - `rhi/`: Shader, VertexBuffer, IndexBuffer, VertexArray, Texture2D, Framebuffer, RenderCommand
 - `Renderer2D` batched; port `SpriteRenderer` and `Text` onto it
 - Camera becomes ortho **and** perspective capable; depth buffer enabled

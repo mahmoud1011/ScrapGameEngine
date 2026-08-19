@@ -1,48 +1,56 @@
-# Prerequisites
-*.d
+# Build output
+build/
+out/
+install/
+CMakeUserPresets.json
+compile_commands.json
 
-# Compiled Object files
-*.slo
-*.lo
+# vcpkg
+vcpkg_installed/
+
+# Generated documentation
+docs/generated/
+
+# Compiled objects and binaries
 *.o
 *.obj
-
-# Precompiled Headers
+*.slo
+*.lo
+*.d
 *.gch
 *.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Visual Studio files
-.vscode/
-.vs/
-__pycache__/
-thumbs.db
-ehthumbs.db
-
-# Mac specific files
-.DS_Store
-*.DS_Store
-
-# Xcode project files
-build/
-*.xcodeproj/
-*.xcworkspace/
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
 *.exe
 *.out
 *.app
+*.so
+*.dylib
+*.dll
+*.lib
+*.a
+*.la
+*.lai
+*.exp
+*.pdb
+*.ilk
+
+# IDE and editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+~AutoRecover.*
+*.xcodeproj/
+*.xcworkspace/
+
+# OS
+.DS_Store
+thumbs.db
+ehthumbs.db
+
+# Python bytecode (tooling scripts)
+__pycache__/
