@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- [UnmanagedCallersOnly] entry points require an unsafe context. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- The engine loads this assembly through hostfxr, so it is a library that still
+         needs a runtimeconfig.json describing which runtime to start. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>ScrapScript</AssemblyName>
+    <RootNamespace>Scrap</RootNamespace>
+  </PropertyGroup>
+
+</Project>

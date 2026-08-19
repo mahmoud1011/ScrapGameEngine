@@ -59,3 +59,7 @@ __pycache__/
 graphify-out/graph.html
 graphify-out/.graphify_*
 graphify-out/cache/
+
+# .NET build output
+scripting/**/bin/
+scripting/**/obj/

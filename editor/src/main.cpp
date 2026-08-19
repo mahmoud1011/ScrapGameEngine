@@ -21,6 +21,10 @@
 #include "renderer/SpriteRenderer.h"
 #include "scene/Transform.h"
 
+#ifdef SCRAP_HAS_DOTNET
+#include "scripting/DotNetHost.h"
+#endif
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -115,6 +119,36 @@ int main()
 
     createStarterScene();
 
+#ifdef SCRAP_HAS_DOTNET
+    // C# scripting. Signatures must match the [UnmanagedCallersOnly] declarations in
+    // ScrapScript.Bootstrap exactly - the runtime hands back a raw function pointer
+    // and does not check.
+    using InitializeFn = int (*)(int);
+    using TickFn = void (*)(float);
+    using AverageFrameTimeFn = float (*)();
+
+    TickFn scriptTick = nullptr;
+    AverageFrameTimeFn scriptAverage = nullptr;
+
+    if (DotNetHost::initialize("scripting/ScrapScript.runtimeconfig.json",
+                               "scripting/ScrapScript.dll"))
+    {
+        const char* type = "Scrap.Bootstrap, ScrapScript";
+        if (auto* init = reinterpret_cast<InitializeFn>(DotNetHost::getFunction(type, "Initialize")))
+        {
+            init(SCRAP_ENGINE_VERSION);
+            ctx.logInfo("C# scripting online (CoreCLR).");
+        }
+        scriptTick = reinterpret_cast<TickFn>(DotNetHost::getFunction(type, "Tick"));
+        scriptAverage = reinterpret_cast<AverageFrameTimeFn>(
+            DotNetHost::getFunction(type, "AverageFrameTime"));
+    }
+    else
+    {
+        ctx.logWarning("C# scripting unavailable - running native only.");
+    }
+#endif
+
     auto previous = std::chrono::high_resolution_clock::now();
 
     while (running && !glfwWindowShouldClose(nativeWindow))
@@ -132,6 +166,10 @@ int main()
         // Objects queued last frame get folded in, and play mode ticks the scene.
         GameObjectCollection::update(ctx.isPlaying() ? deltaTime : 0.0f);
         ctx.camera.update(deltaTime, ctx.viewportHovered);
+
+#ifdef SCRAP_HAS_DOTNET
+        if (scriptTick && ctx.isPlaying()) scriptTick(deltaTime);
+#endif
 
         // Scene pass into the offscreen target the viewport panel samples.
         Renderer::beginFrameWith(ctx.camera.getViewProjection());
@@ -197,6 +235,15 @@ int main()
         ImGuiLayer::end(displayWidth, displayHeight);
         glfwSwapBuffers(nativeWindow);
     }
+
+#ifdef SCRAP_HAS_DOTNET
+    if (scriptAverage)
+    {
+        std::cout << "[DOTNET] managed average frame time: "
+                  << scriptAverage() * 1000.0f << " ms" << std::endl;
+    }
+    DotNetHost::shutdown();
+#endif
 
     ImGuiLayer::shutdown();
     GameObjectCollection::dispose();

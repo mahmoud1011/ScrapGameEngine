@@ -40,6 +40,21 @@ add_library(ScrapEngine STATIC
     src/audio/AudioDevice.cpp
     src/audio/AudioSource.cpp
 )
+
+# C# scripting is optional: without the .NET hosting API the engine still builds and
+# runs, just without a managed layer. That keeps CI and contributors unblocked on
+# machines with no SDK installed.
+if(SCRAP_ENABLE_DOTNET)
+    find_package(DotNetHost)
+    if(DotNetHost_FOUND)
+        target_sources(ScrapEngine PRIVATE src/scripting/DotNetHost.cpp)
+        target_link_libraries(ScrapEngine PRIVATE DotNetHost::nethost)
+        target_compile_definitions(ScrapEngine PUBLIC SCRAP_HAS_DOTNET=1)
+        message(STATUS "ScrapEngine: C# scripting enabled (CoreCLR)")
+    else()
+        message(STATUS "ScrapEngine: .NET hosting API not found - C# scripting disabled")
+    endif()
+endif()
 add_library(Scrap::Engine ALIAS ScrapEngine)
 
 # Only the src root goes on the include path, never the individual module directories.

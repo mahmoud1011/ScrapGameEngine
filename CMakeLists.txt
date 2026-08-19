@@ -12,6 +12,13 @@ project(ScrapEngine
     DESCRIPTION "A cross-platform 2D/3D game engine"
     LANGUAGES C CXX)
 
+# Version as a single comparable integer, exposed to code so the managed layer can be
+# told what it is talking to. Computed rather than concatenated: "0" "8" "0" pasted
+# together is 080, which C++ reads as octal and rejects.
+math(EXPR SCRAP_VERSION_INT
+     "${PROJECT_VERSION_MAJOR} * 10000 + ${PROJECT_VERSION_MINOR} * 100 + ${PROJECT_VERSION_PATCH}")
+add_compile_definitions(SCRAP_ENGINE_VERSION=${SCRAP_VERSION_INT})
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -36,6 +43,9 @@ endif()
 
 option(SCRAP_BUILD_SANDBOX "Build the sandbox example game" ON)
 option(SCRAP_BUILD_EDITOR  "Build the ScrapEditor" ON)
+option(SCRAP_ENABLE_DOTNET "Host CoreCLR for C# scripting when the .NET hosting API is available" ON)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Warnings are shared by every first-party target. Deliberately not -Werror yet:
 # the 0.7 sources still trip a number of these, and Phase 1 clears them.

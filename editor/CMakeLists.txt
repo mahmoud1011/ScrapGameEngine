@@ -19,6 +19,15 @@ target_link_libraries(ScrapEditor PRIVATE
     scrap_warnings
 )
 
+# nethost.dll must sit beside the executable, since we link the import library
+# rather than the static one.
+if(TARGET DotNetHost::nethost AND DotNetHost_RUNTIME_DLL)
+    add_custom_command(TARGET ScrapEditor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DotNetHost_RUNTIME_DLL}" "$<TARGET_FILE_DIR:ScrapEditor>"
+        COMMENT "Staging nethost.dll")
+endif()
+
 # The editor writes its dock layout beside the executable, and looks for content
 # one level up, where the sandbox assets are staged.
 set_target_properties(ScrapEditor PROPERTIES
