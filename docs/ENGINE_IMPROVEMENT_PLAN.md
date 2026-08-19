@@ -1,7 +1,7 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: **Phases 0 and 1 complete.** Phase 2 (the editor) next.
+Status: **Phases 0, 1 and 2 complete.** C# scripting hosted. Phase 3 (scene model) next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
 
 Platform targets: Windows, macOS and Linux first; Android and iOS once the render
@@ -236,11 +236,38 @@ irrKlang is closed-source, ships only prebuilt binaries (currently missing from 
 
 Box2D for 2D, Jolt for 3D, both behind a `PhysicsWorld` interface. Deliberately kept off the critical path to the editor.
 
-### D10 — Scripting: native C++ now, Lua later
+### D10 — Scripting: C# on CoreCLR, alongside C++  *(revised)*
 
-A `NativeScriptComponent` (compiled-in C++) covers Phases 0–4. Lua via `sol2` is the Phase 5 addition — hot-reloadable and cheap to integrate. C# via Mono is a much larger project and is not recommended at this engine's stage.
+> *Originally: native C++ now, Lua later, with C# via Mono judged too large. Revised
+> because C# is a stated requirement, and because CoreCLR makes it materially cheaper
+> than the Mono estimate that recommendation was based on.*
 
----
+Game code can be written in **C++** (compiled into the game target) or **C#** (a managed
+assembly loaded at runtime). Both are first-class.
+
+The managed layer hosts **CoreCLR in-process** through the official chain: `nethost`
+locates `hostfxr`, `hostfxr` starts a runtime from a `runtimeconfig.json`, and
+`load_assembly_and_get_function_pointer` reaches managed entry points. That is the path
+.NET documents, and the direction Unity is moving with its own CoreCLR migration.
+
+**Why CoreCLR and not NativeAOT.** AOT produces a faster startup and a smaller
+footprint, but it compiles ahead of time and cannot load or unload assemblies at
+runtime. Script hot reload is exactly that operation — a collectible
+`AssemblyLoadContext` per user assembly, unloaded and rebuilt on change. Giving that up
+would defeat the purpose of scripting.
+
+**Interop shape.** Calls cross as raw function pointers over blittable arguments;
+managed entry points are `[UnmanagedCallersOnly]`. No reflection on the hot path, and no
+managed object is ever held by native code — an entity crosses as an integer handle.
+This is the discipline that keeps a scripting layer from becoming the profile's
+hot spot.
+
+Trade-off: the boundary is unforgiving. A function pointer signature that disagrees with
+its managed declaration corrupts the stack with no diagnostic, so signatures are
+declared next to each other by convention. A generated binding layer replaces that
+convention later.
+
+*Still deferred:* Lua via sol2, if a lighter embedded option is ever wanted alongside.
 
 ## 5. Naming cleanup inventory
 
@@ -343,20 +370,48 @@ Notes on what Phase 1 turned up:
   `Graphics.h`, and `switch` cases declaring locals without a scope. All three were
   pre-existing and invisible under MSVC alone.
 
-### Phase 2 — The Editor ← **next** *(your "interface first")*
+### Phase 2 — The Editor ✅ **Complete**
 
-> *Goal: a real editor window you can select and move things in.*
+> *Goal: a real editor window you can select and move things in — your "interface first".*
 
-- ImGui docking + ImGuizmo, `ImGuiLayer`
-- Panels: Viewport (draws the Phase-1 FBO), Hierarchy, Inspector, Content Browser, Console (log sink), Stats
-- `EditorCamera` — orbit/fly, fully independent of the game camera
-- Mouse picking via an entity-ID attachment readback
-- A stress scene plus a stats panel, to finally measure the Phase 1 batching throughput
-- Port `Text` rendering, which was never actually implemented
+- [x] ImGui docking + ImGuizmo, wrapped in an `ImGuiLayer`
+- [x] Panels: Viewport (sampling the Phase-1 framebuffer), Hierarchy, Inspector, Content Browser, Console, Stats
+- [x] `EditorCamera` — orbit/pan/zoom, fully independent of the engine's Camera
+- [x] Default dock layout built programmatically on first run, then the user's own layout persists
+- [x] A distinct visual identity: slate chrome, a patina accent used only for state, square corners
+- [ ] Mouse picking via an entity-ID attachment readback — **not done**, selection is hierarchy-only for now
+- [ ] `Text` rendering — still unimplemented, carried forward
 
-**Exit criteria:** select an entity in the hierarchy, edit its components in the inspector, and drag it with a gizmo.
+**Exit criteria — met for selection and editing.** The editor opens on a docked
+Unity-shaped layout, lists the scene, edits the selected object's transform in the
+inspector, and drags it with a gizmo. Viewport picking is the one part of the original
+criterion still outstanding.
 
-### Phase 3 — Scene model + serialization
+**It also settled the Phase 1 question.** The Stats panel reads draw calls and quads
+straight off the batcher: the starter scene reports **5 quads in 1 draw call**. The
+batching works; a scale benchmark is still worth writing, but it is no longer unverified.
+
+Three latent bugs surfaced building it, all pre-existing:
+
+- **`SpriteRenderer` left `_mesh` and `_texture` uninitialised.** Nothing had crashed
+  only because the sandbox always called `setTexture()` before rendering. A sprite
+  without a texture dereferenced a garbage pointer. `RenderParams::texture` and
+  `GameObject::transform` had the same shape and are now defaulted too.
+- **`GameObject::Create` never registered with `GameObjectCollection`** — the collection
+  was dead code no caller ever populated.
+- **`GameObjectCollection::add` double-stored.** It pushed into `gameObjects` while
+  `update()` separately folded the same queue in, so every object would have been
+  updated and rendered twice. Invisible until something actually used the collection.
+
+Two engine changes the editor forced, both anticipated by the plan:
+
+- `Renderer` gained `beginFrameWith`/`endFrameOffscreen`, so a host can drive the scene
+  pass with its own view-projection and skip the window blit. This is D4's static-Camera
+  problem showing up concretely.
+- `Input::init`/`process` were private and friended to `Application`, which assumed the
+  game loop was the only host. They are part of the contract now.
+
+### Phase 3 — Scene model + serialization ← **next**
 
 > *Goal: the editor can save your work.*
 
@@ -364,6 +419,9 @@ Notes on what Phase 1 turned up:
 - `SceneSerializer` → `.scrapscene` YAML
 - Play / Pause / Stop with copy-on-play, so Stop restores the edit state
 - Prefabs
+- Bind the hosted C# layer to entities: a `ScriptComponent` naming a managed type, and
+  entities crossing the boundary as integer handles. The runtime is already hosted
+  (D10); what it lacks is a scene to talk about.
 
 **Exit criteria:** build a scene in the editor, save, close, reopen, hit Play, get your game. Hit Stop, get your edits back.
 
@@ -378,7 +436,12 @@ Notes on what Phase 1 turned up:
 
 ### Phase 5 — Systems
 
-Physics (Box2D 2D / Jolt 3D) · audio → miniaudio · asset pipeline with UUIDs, async loading and hot reload · Lua scripting via sol2 · profiler and instrumentation.
+Physics (Box2D 2D / Jolt 3D) · asset pipeline with UUIDs, async loading and hot reload ·
+**C# hot reload** via a collectible `AssemblyLoadContext` per user assembly · viewport
+entity picking · `Text` rendering · profiler and instrumentation.
+
+Audio already moved to miniaudio in Phase 0, and the CoreCLR host landed alongside
+Phase 2 — what remains here is the reload machinery on top of it.
 
 ### Phase 6 — Ship
 
