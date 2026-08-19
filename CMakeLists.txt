@@ -35,6 +35,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(SCRAP_BUILD_SANDBOX "Build the sandbox example game" ON)
+option(SCRAP_BUILD_EDITOR  "Build the ScrapEditor" ON)
 
 # Warnings are shared by every first-party target. Deliberately not -Werror yet:
 # the 0.7 sources still trip a number of these, and Phase 1 clears them.
@@ -53,6 +54,10 @@ add_subdirectory(engine)
 
 if(SCRAP_BUILD_SANDBOX)
     add_subdirectory(sandbox)
+endif()
+
+if(SCRAP_BUILD_EDITOR)
+    add_subdirectory(editor)
 endif()
 
 message(STATUS "ScrapEngine ${PROJECT_VERSION} - ${CMAKE_SYSTEM_NAME} / ${CMAKE_CXX_COMPILER_ID}")

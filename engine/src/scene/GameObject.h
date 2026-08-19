@@ -37,7 +37,7 @@ namespace ScrapGameEngine
 		static GameObject* Create(const std::string& name);
 
 		/** @brief Pointer to the transform component of the GameObject. */
-		Transform* transform;
+		Transform* transform = nullptr;
 
 		/** @brief Default constructor for GameObject. */
 		GameObject();

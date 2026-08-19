@@ -9,6 +9,11 @@
     "glfw3",
     "glm",
     "freetype",
-    "miniaudio"
+    "miniaudio",
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "glfw-binding", "opengl3-binding"]
+    },
+    "imguizmo"
   ]
 }

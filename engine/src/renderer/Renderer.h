@@ -41,11 +41,28 @@ namespace ScrapGameEngine
         static bool init(unsigned int width, unsigned int height);
         static void shutdown();
 
-        /** @brief Binds the scene target and starts a batch. */
+        /** @brief Binds the scene target and starts a batch, using the engine Camera. */
         static void beginFrame();
 
         /** @brief Flushes the batch and blits the scene target to the window. */
         static void endFrame();
+
+        /**
+         * @brief Starts a frame against a caller-supplied view-projection.
+         *
+         * The editor needs this: its camera must drive the scene pass while the game's
+         * Camera stays untouched. Once Camera becomes a component this stops being a
+         * separate entry point and is simply how every frame begins.
+         */
+        static void beginFrameWith(const glm::mat4& viewProjection);
+
+        /**
+         * @brief Flushes the batch and leaves the result in the scene target.
+         *
+         * No blit to the window, because the caller is going to sample the colour
+         * attachment itself - an editor viewport panel rather than a fullscreen game.
+         */
+        static void endFrameOffscreen();
 
         /** @brief Queues a quad. Only valid between beginFrame and endFrame. */
         static void submitCommand(const DrawCommand& dc);

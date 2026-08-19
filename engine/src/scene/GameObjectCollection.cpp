@@ -8,18 +8,15 @@ std::unordered_map<std::string, GameObject*> GameObjectCollection::gameObjectMap
 
 void GameObjectCollection::add(GameObject* go)
 {
-	// Only add to gameObjectsToAdd if the object is not already in the set
+	if (go == nullptr) return;
+
+	// Queue only. This used to also push straight into gameObjects, while update()
+	// separately folded the same queue in - so every object ended up in the list
+	// twice and was updated and rendered twice. The queue is the single path in.
 	if (gameObjectsToAdd.find(go) == gameObjectsToAdd.end())
 	{
 		gameObjectsToAdd.insert(go);
-
-		// Check if the GameObject is already in the gameObjects vector
-		// Only add if it's not found in the map (faster check)
-		if (gameObjectMap.find(go->getName()) == gameObjectMap.end())
-		{
-			gameObjects.push_back(go);
-			gameObjectMap[go->getName()] = go; // Add to map for fast lookup by name
-		}
+		gameObjectMap[go->getName()] = go; // name lookup is available immediately
 	}
 }
 
@@ -88,4 +85,9 @@ GameObject* GameObjectCollection::find(std::string name)
 		return it->second;
 	}
 	return nullptr; // Return nullptr if no match is found
+}
+
+const std::vector<GameObject*>& ScrapGameEngine::GameObjectCollection::all()
+{
+	return gameObjects;
 }

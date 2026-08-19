@@ -96,7 +96,11 @@ namespace ScrapGameEngine {
         glm::vec2 _size;        ///< Size (width, height) of the sprite
         glm::vec2 _pivot;       ///< Pivot point (x, y) of the sprite
         std::string texturePath;
-        Mesh* _mesh;            ///< Mesh representing the sprite
-        Texture2D* _texture;    ///< Texture resource for the sprite
+        // Both were left uninitialised, so a sprite that was rendered before
+        // setTexture() dereferenced a garbage pointer. _mesh is now unused entirely -
+        // the batcher generates quad geometry - and is kept only until callers that
+        // still reference it are gone.
+        Mesh* _mesh = nullptr;         ///< Unused; the batcher owns quad geometry.
+        Texture2D* _texture = nullptr; ///< Texture resource for the sprite, may be null.
     };
 }

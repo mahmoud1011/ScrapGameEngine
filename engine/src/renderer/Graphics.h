@@ -19,7 +19,7 @@ namespace ScrapGameEngine
         glm::vec3 translation;    /**< The translation vector for positioning the mesh. */
         float rotationZ;          /**< The rotation angle around the Z-axis (in radians). */
         glm::vec3 scale;          /**< The scale vector for resizing the mesh. */
-        Texture2D* texture;       /**< Pointer to the texture applied to the mesh. */
+        Texture2D* texture = nullptr; /**< Texture applied to the mesh; null draws flat colour. */
     };
 
     /**

@@ -47,6 +47,15 @@ namespace ScrapGameEngine
 		 */
 		static GameObject* find(std::string name);
 
+		/**
+		 * @brief Read-only view of every live GameObject.
+		 *
+		 * Needed by tooling that enumerates the scene - the editor's hierarchy panel
+		 * is the first caller. Objects queued this frame are not included until they
+		 * are folded in by update().
+		 */
+		static const std::vector<GameObject*>& all();
+
 	private:
 		/**
 		 * @brief Stores all active `GameObject` instances.

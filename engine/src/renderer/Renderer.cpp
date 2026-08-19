@@ -60,11 +60,23 @@ void Renderer::shutdown()
 
 void Renderer::beginFrame()
 {
+    beginFrameWith(Camera::getMatrix_viewProjection());
+}
+
+void Renderer::beginFrameWith(const glm::mat4& viewProjection)
+{
     isRendering = true;
 
     sceneTarget.bind();
     clear();
-    Renderer2D::beginScene(Camera::getMatrix_viewProjection());
+    Renderer2D::beginScene(viewProjection);
+}
+
+void Renderer::endFrameOffscreen()
+{
+    Renderer2D::endScene();
+    Framebuffer::unbind();
+    isRendering = false;
 }
 
 void Renderer::endFrame()

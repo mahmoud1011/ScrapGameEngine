@@ -129,9 +129,12 @@ namespace ScrapGameEngine
      */
     class Input
     {
-    private:
-        friend class Application;
+    public:
         Input() = delete;
+
+        // Lifecycle. These were private and friended to Application, which assumed the
+        // game loop was the only host. The editor drives its own loop and needs them
+        // too, so they are part of the contract rather than a special case.
 
         /**
          * @brief Initialize the Input class.
@@ -146,6 +149,7 @@ namespace ScrapGameEngine
          */
         static void process();
 
+    private:
         static std::unordered_map<KeyCode, bool> key_states_current; ///< Current state of keys.
         static std::unordered_map<KeyCode, bool> key_states_previous; ///< Previous state of keys.
 

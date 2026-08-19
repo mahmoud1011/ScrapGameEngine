@@ -1,4 +1,5 @@
 #include "scene/GameObject.h"
+#include "scene/GameObjectCollection.h"
 #include <algorithm> 
 using namespace ScrapGameEngine;
 
@@ -6,6 +7,10 @@ using namespace ScrapGameEngine;
 GameObject* GameObject::Create()
 {
     GameObject* newObj = new GameObject();
+    // Register with the collection so tooling can enumerate the scene. Objects were
+    // previously invisible to GameObjectCollection unless a caller added them by
+    // hand, which nothing ever did.
+    GameObjectCollection::add(newObj);
     return newObj;
 }
 
@@ -13,6 +18,7 @@ GameObject* GameObject::Create()
 GameObject* GameObject::Create(const std::string& name)
 {
     GameObject* newObj = new GameObject(name);
+    GameObjectCollection::add(newObj);
     return newObj;
 }
 
