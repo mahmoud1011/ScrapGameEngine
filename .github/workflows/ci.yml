@@ -12,15 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # docs/ is excluded on purpose: the improvement plan documents the cleanup and
-      # necessarily names the identifiers it removed.
+      # Two paths are excluded on purpose. docs/ holds the improvement plan, which
+      # documents the cleanup and so necessarily names the identifiers it removed.
+      # This file is excluded because it would otherwise match its own pattern.
       - name: Check for coursework identifiers
         run: |
-          if git grep -nIiE "0130645|xbgt3124|ToGoGameEngine" -- . ':!docs/' ; then
+          if git grep -nIiE "0130645|xbgt3124|ToGoGameEngine" \
+               -- . ':!docs/' ':!.github/workflows/ci.yml' ; then
             echo "::error::Coursework identifiers found. Everything is named ScrapEngine."
             exit 1
           fi
-          echo "Clean - no coursework identifiers outside docs/."
+          echo "Clean - no coursework identifiers in the source tree."
 
   build:
     name: ${{ matrix.name }}
