@@ -54,3 +54,8 @@ ehthumbs.db
 
 # Python bytecode (tooling scripts)
 __pycache__/
+
+# graphify: keep the graph data and report, regenerate the viewer and internals
+graphify-out/graph.html
+graphify-out/.graphify_*
+graphify-out/cache/
