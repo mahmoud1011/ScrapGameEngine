@@ -3,6 +3,7 @@
 #include "ScrapTheme.h"
 
 #include "renderer/Renderer.h"
+#include "renderer/Renderer3D.h"
 #include "rhi/Framebuffer.h"
 #include "scene/Entity.h"
 #include "scene/Scene.h"
@@ -365,6 +366,46 @@ namespace Scrap::Editor
                 e.addComponent<Scrap::CameraComponent>();
                 ctx.select(e);
             }
+            ImGui::Separator();
+            if (ImGui::BeginMenu("3D Object"))
+            {
+                struct Primitive { const char* label; Scrap::PrimitiveKind kind; };
+                const Primitive primitives[] = {
+                    {"Cube",   Scrap::PrimitiveKind::Cube},
+                    {"Sphere", Scrap::PrimitiveKind::Sphere},
+                    {"Plane",  Scrap::PrimitiveKind::Plane},
+                };
+                for (const auto& p : primitives)
+                {
+                    if (ImGui::MenuItem(p.label))
+                    {
+                        Entity e = scene->createEntity(p.label);
+                        e.addComponent<Scrap::MeshRendererComponent>().primitive = p.kind;
+                        ctx.select(e);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Light"))
+            {
+                if (ImGui::MenuItem("Directional"))
+                {
+                    Entity e = scene->createEntity("Directional Light");
+                    auto& light = e.addComponent<Scrap::LightComponent>();
+                    light.kind = Scrap::LightKind::Directional;
+                    light.intensity = 3.0f;
+                    e.getComponent<Scrap::TransformComponent>().rotation = {-0.9f, 0.5f, 0.0f};
+                    ctx.select(e);
+                }
+                if (ImGui::MenuItem("Point"))
+                {
+                    Entity e = scene->createEntity("Point Light");
+                    e.addComponent<Scrap::LightComponent>();
+                    e.getComponent<Scrap::TransformComponent>().translation = {0.0f, 2.0f, 0.0f};
+                    ctx.select(e);
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndPopup();
         }
 
@@ -461,6 +502,56 @@ namespace Scrap::Editor
             }
         }
 
+        if (auto* mesh = entity.tryGetComponent<Scrap::MeshRendererComponent>())
+        {
+            bool open = ImGui::CollapsingHeader("Mesh Renderer", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginPopupContextItem("##meshCtx"))
+            {
+                if (ImGui::MenuItem("Remove Component"))
+                    entity.removeComponent<Scrap::MeshRendererComponent>();
+                ImGui::EndPopup();
+            }
+            if (open)
+            {
+                int primitive = static_cast<int>(mesh->primitive);
+                if (ImGui::Combo("Mesh", &primitive, "Cube\0Sphere\0Plane\0Custom\0"))
+                {
+                    mesh->primitive = static_cast<Scrap::PrimitiveKind>(primitive);
+                    mesh->mesh.reset();   // rebuilt lazily on the next draw
+                }
+                ImGui::ColorEdit4("Albedo", glm::value_ptr(mesh->albedo));
+                ImGui::SliderFloat("Metallic", &mesh->metallic, 0.0f, 1.0f);
+                ImGui::SliderFloat("Roughness", &mesh->roughness, 0.02f, 1.0f);
+                ImGui::SliderFloat("Emissive", &mesh->emissive, 0.0f, 4.0f);
+            }
+        }
+
+        if (auto* light = entity.tryGetComponent<Scrap::LightComponent>())
+        {
+            bool open = ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginPopupContextItem("##lightCtx"))
+            {
+                if (ImGui::MenuItem("Remove Component"))
+                    entity.removeComponent<Scrap::LightComponent>();
+                ImGui::EndPopup();
+            }
+            if (open)
+            {
+                int kind = light->kind == Scrap::LightKind::Directional ? 0 : 1;
+                if (ImGui::Combo("Type", &kind, "Directional\0Point\0"))
+                {
+                    light->kind = kind == 0 ? Scrap::LightKind::Directional
+                                            : Scrap::LightKind::Point;
+                }
+                ImGui::ColorEdit3("Color", glm::value_ptr(light->color));
+                ImGui::DragFloat("Intensity", &light->intensity, 0.05f, 0.0f, 50.0f);
+                if (light->kind == Scrap::LightKind::Point)
+                    ImGui::DragFloat("Range", &light->range, 0.1f, 0.1f, 200.0f);
+                else
+                    ImGui::TextColored(P::InkFaint, "Aim by rotating the entity.");
+            }
+        }
+
         if (auto* script = entity.tryGetComponent<Scrap::ScriptComponent>())
         {
             bool open = ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen);
@@ -492,6 +583,11 @@ namespace Scrap::Editor
                 entity.addComponent<Scrap::SpriteRendererComponent>();
             if (!entity.hasComponent<Scrap::CameraComponent>() && ImGui::MenuItem("Camera"))
                 entity.addComponent<Scrap::CameraComponent>();
+            if (!entity.hasComponent<Scrap::MeshRendererComponent>() &&
+                ImGui::MenuItem("Mesh Renderer"))
+                entity.addComponent<Scrap::MeshRendererComponent>();
+            if (!entity.hasComponent<Scrap::LightComponent>() && ImGui::MenuItem("Light"))
+                entity.addComponent<Scrap::LightComponent>();
             if (!entity.hasComponent<Scrap::ScriptComponent>() && ImGui::MenuItem("Script"))
                 entity.addComponent<Scrap::ScriptComponent>();
             ImGui::EndPopup();
@@ -631,6 +727,15 @@ namespace Scrap::Editor
         sectionLabel("SCRIPTS");
         ImGui::Text("Instances   %d", Scrap::ScriptEngine::liveInstanceCount());
 #endif
+
+        ImGui::Spacing();
+        sectionLabel("RENDERER 3D");
+        {
+            const auto& stats3d = Renderer3D::getStats();
+            ImGui::Text("Draw calls  %u", stats3d.drawCalls);
+            ImGui::Text("Meshes      %u", stats3d.meshCount);
+            ImGui::Text("Triangles   %u", stats3d.triangleCount);
+        }
 
         ImGui::Spacing();
         sectionLabel("SCENE");

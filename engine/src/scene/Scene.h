@@ -47,7 +47,9 @@ namespace Scrap
         void onRenderRuntime();
 
         /** @brief Draws the scene through a caller-supplied view-projection. */
-        void onRenderEditor(const glm::mat4& viewProjection);
+        void onRenderEditor(const glm::mat4& viewProjection,
+                            const glm::vec3& cameraPosition = glm::vec3(0.0f),
+                            bool drawGrid = false);
 
         /** @brief Deep copy, so play mode never mutates the authored scene. */
         static std::shared_ptr<Scene> copy(const std::shared_ptr<Scene>& source);
@@ -66,6 +68,8 @@ namespace Scrap
         friend class SceneSerializer;
 
         void renderSprites();
+        void renderMeshes(const glm::mat4& viewProjection, const glm::vec3& cameraPosition);
+        void submitLights();
 
         entt::registry registry;
         std::unordered_map<uint64_t, entt::entity> byUUID;

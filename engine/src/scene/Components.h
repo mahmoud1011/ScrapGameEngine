@@ -4,9 +4,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
-namespace ScrapGameEngine { class Texture2D; }
+namespace ScrapGameEngine { class Texture2D; class Mesh3D; }
 
 namespace Scrap
 {
@@ -82,6 +83,38 @@ namespace Scrap
         float nearClip = -1.0f;
         float farClip = 1000.0f;
         bool primary = true;          ///< Which camera the runtime renders through.
+    };
+
+    /** @brief Which built-in primitive a MeshRendererComponent draws. */
+    enum class PrimitiveKind { Cube, Sphere, Plane, Custom };
+
+    /**
+     * @brief Lit 3D geometry.
+     *
+     * The mesh pointer is resolved at load from `primitive` (or, later, from a glTF
+     * path), for the same reason SpriteRenderer serializes a path and not an address.
+     */
+    struct MeshRendererComponent
+    {
+        PrimitiveKind primitive = PrimitiveKind::Cube;
+        std::shared_ptr<ScrapGameEngine::Mesh3D> mesh;
+        std::string meshPath;
+
+        glm::vec4 albedo{0.8f, 0.8f, 0.82f, 1.0f};
+        float metallic = 0.0f;
+        float roughness = 0.5f;
+        float emissive = 0.0f;
+    };
+
+    enum class LightKind { Directional, Point };
+
+    /** @brief A light. Direction comes from the entity's transform rotation. */
+    struct LightComponent
+    {
+        LightKind kind = LightKind::Point;
+        glm::vec3 color{1.0f};
+        float intensity = 1.0f;
+        float range = 10.0f;
     };
 
     /**

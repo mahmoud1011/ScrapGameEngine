@@ -16,9 +16,11 @@ add_library(ScrapEngine STATIC
     src/renderer/Camera.cpp
     src/renderer/Graphics.cpp
     src/renderer/Mesh.cpp
+    src/renderer/Mesh3D.cpp
     src/renderer/MeshAllocator.cpp
     src/renderer/Renderer.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/Renderer3D.cpp
     src/renderer/SpriteRenderer.cpp
     src/renderer/Text.cpp
     src/renderer/Texture2D.cpp

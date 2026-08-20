@@ -100,6 +100,32 @@ namespace Scrap
                 out << YAML::EndMap;
             }
 
+            if (auto* mesh = entity.tryGetComponent<MeshRendererComponent>())
+            {
+                out << YAML::Key << "MeshRenderer" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "Primitive" << YAML::Value
+                    << (mesh->primitive == PrimitiveKind::Sphere ? "Sphere" :
+                        mesh->primitive == PrimitiveKind::Plane  ? "Plane"  :
+                        mesh->primitive == PrimitiveKind::Custom ? "Custom" : "Cube");
+                out << YAML::Key << "Mesh" << YAML::Value << mesh->meshPath;
+                out << YAML::Key << "Albedo" << YAML::Value << mesh->albedo;
+                out << YAML::Key << "Metallic" << YAML::Value << mesh->metallic;
+                out << YAML::Key << "Roughness" << YAML::Value << mesh->roughness;
+                out << YAML::Key << "Emissive" << YAML::Value << mesh->emissive;
+                out << YAML::EndMap;
+            }
+
+            if (auto* light = entity.tryGetComponent<LightComponent>())
+            {
+                out << YAML::Key << "Light" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "Kind" << YAML::Value
+                    << (light->kind == LightKind::Directional ? "Directional" : "Point");
+                out << YAML::Key << "Color" << YAML::Value << light->color;
+                out << YAML::Key << "Intensity" << YAML::Value << light->intensity;
+                out << YAML::Key << "Range" << YAML::Value << light->range;
+                out << YAML::EndMap;
+            }
+
             if (auto* script = entity.tryGetComponent<ScriptComponent>())
             {
                 out << YAML::Key << "Script" << YAML::Value << YAML::BeginMap;
@@ -198,6 +224,30 @@ namespace Scrap
                 camera.nearClip = c["Near"].as<float>();
                 camera.farClip = c["Far"].as<float>();
                 camera.primary = c["Primary"].as<bool>();
+            }
+
+            if (const auto m = node["MeshRenderer"])
+            {
+                auto& mesh = entity.addComponent<MeshRendererComponent>();
+                const auto kind = m["Primitive"].as<std::string>();
+                mesh.primitive = kind == "Sphere" ? PrimitiveKind::Sphere :
+                                 kind == "Plane"  ? PrimitiveKind::Plane  :
+                                 kind == "Custom" ? PrimitiveKind::Custom : PrimitiveKind::Cube;
+                if (m["Mesh"]) mesh.meshPath = m["Mesh"].as<std::string>();
+                mesh.albedo = m["Albedo"].as<glm::vec4>();
+                mesh.metallic = m["Metallic"].as<float>();
+                mesh.roughness = m["Roughness"].as<float>();
+                mesh.emissive = m["Emissive"].as<float>();
+            }
+
+            if (const auto l = node["Light"])
+            {
+                auto& light = entity.addComponent<LightComponent>();
+                light.kind = l["Kind"].as<std::string>() == "Directional"
+                                 ? LightKind::Directional : LightKind::Point;
+                light.color = l["Color"].as<glm::vec3>();
+                light.intensity = l["Intensity"].as<float>();
+                light.range = l["Range"].as<float>();
             }
 
             if (const auto script = node["Script"])

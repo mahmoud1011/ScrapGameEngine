@@ -3,7 +3,9 @@
 
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
+#include "renderer/Mesh3D.h"
 #include "renderer/Renderer2D.h"
+#include "renderer/Renderer3D.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/ScriptEngine.h"
@@ -93,10 +95,80 @@ namespace Scrap
         }
     }
 
-    void Scene::onRenderEditor(const glm::mat4& viewProjection)
+    void Scene::submitLights()
+    {
+        using namespace ScrapGameEngine;
+        Renderer3D::clearPointLights();
+
+        bool haveSun = false;
+        for (auto handle : registry.view<TransformComponent, LightComponent>())
+        {
+            const auto& light = registry.get<LightComponent>(handle);
+            const auto& transform = registry.get<TransformComponent>(handle);
+
+            if (light.kind == LightKind::Directional)
+            {
+                // Direction is the entity's -Z axis, so rotating the entity aims it.
+                const glm::vec3 dir = glm::normalize(
+                    glm::vec3(transform.matrix() * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+                Renderer3D::setDirectionalLight({dir, light.color, light.intensity});
+                haveSun = true;
+            }
+            else
+            {
+                Renderer3D::addPointLight({transform.translation, light.color,
+                                           light.intensity, light.range});
+            }
+        }
+
+        // Without a sun the scene would be lit by ambient alone and read as flat, so
+        // fall back to a default key light rather than showing nothing.
+        if (!haveSun) Renderer3D::setDirectionalLight({});
+    }
+
+    void Scene::renderMeshes(const glm::mat4& viewProjection, const glm::vec3& cameraPosition)
+    {
+        using namespace ScrapGameEngine;
+        auto view = registry.view<TransformComponent, MeshRendererComponent>();
+        if (view.begin() == view.end()) return;
+
+        submitLights();
+        Renderer3D::beginScene(viewProjection, cameraPosition);
+
+        for (auto handle : view)
+        {
+            auto& mesh = registry.get<MeshRendererComponent>(handle);
+            const auto& transform = registry.get<TransformComponent>(handle);
+
+            // Primitives are built lazily so a deserialized scene needs no extra pass.
+            if (!mesh.mesh)
+            {
+                switch (mesh.primitive)
+                {
+                    case PrimitiveKind::Sphere: mesh.mesh = Mesh3D::createSphere(); break;
+                    case PrimitiveKind::Plane:  mesh.mesh = Mesh3D::createPlane(4.0f); break;
+                    case PrimitiveKind::Cube:
+                    case PrimitiveKind::Custom: mesh.mesh = Mesh3D::createCube(); break;
+                }
+            }
+
+            Renderer3D::drawMesh(mesh.mesh, transform.matrix(),
+                                 {mesh.albedo, mesh.metallic, mesh.roughness, mesh.emissive});
+        }
+
+        Renderer3D::endScene();
+    }
+
+    void Scene::onRenderEditor(const glm::mat4& viewProjection, const glm::vec3& cameraPosition,
+                               bool drawGrid)
     {
         ScrapGameEngine::Renderer::beginFrameWith(viewProjection);
+
+        // 3D first so depth is laid down, then sprites blend over it.
+        renderMeshes(viewProjection, cameraPosition);
+        if (drawGrid) ScrapGameEngine::Renderer3D::drawGrid(viewProjection);
         renderSprites();
+
         ScrapGameEngine::Renderer::endFrameOffscreen();
     }
 
@@ -130,7 +202,11 @@ namespace Scrap
 
         if (!found) return;   // nothing to see through
 
+        const glm::vec3 cameraPosition =
+            glm::vec3(glm::inverse(viewProjection)[3]);
+
         ScrapGameEngine::Renderer::beginFrameWith(viewProjection);
+        renderMeshes(viewProjection, cameraPosition);
         renderSprites();
         ScrapGameEngine::Renderer::endFrameOffscreen();
     }
@@ -152,6 +228,8 @@ namespace Scrap
         copyComponentType<TransformComponent>(target->registry, source->registry, target->byUUID);
         copyComponentType<SpriteRendererComponent>(target->registry, source->registry, target->byUUID);
         copyComponentType<CameraComponent>(target->registry, source->registry, target->byUUID);
+        copyComponentType<MeshRendererComponent>(target->registry, source->registry, target->byUUID);
+        copyComponentType<LightComponent>(target->registry, source->registry, target->byUUID);
         copyComponentType<ScriptComponent>(target->registry, source->registry, target->byUUID);
 
         return target;

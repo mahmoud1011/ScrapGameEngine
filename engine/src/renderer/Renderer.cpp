@@ -1,6 +1,7 @@
 #include "renderer/Renderer.h"
 #include "renderer/Camera.h"
 #include "renderer/Renderer2D.h"
+#include "renderer/Renderer3D.h"
 #include "rhi/Framebuffer.h"
 
 #include <glad/glad.h>
@@ -45,6 +46,11 @@ bool Renderer::init(unsigned int width, unsigned int height)
         std::cerr << "[RENDERER] batcher failed to initialise." << std::endl;
         return false;
     }
+    if (!Renderer3D::init())
+    {
+        std::cerr << "[RENDERER] 3D renderer failed to initialise." << std::endl;
+        return false;
+    }
 
     const unsigned char* version = glGetString(GL_VERSION);
     const unsigned char* renderer = glGetString(GL_RENDERER);
@@ -55,6 +61,7 @@ bool Renderer::init(unsigned int width, unsigned int height)
 
 void Renderer::shutdown()
 {
+    Renderer3D::shutdown();
     Renderer2D::shutdown();
 }
 

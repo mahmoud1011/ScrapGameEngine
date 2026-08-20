@@ -69,9 +69,51 @@ namespace
         Scrap::Entity camera = scene->createEntity("Main Camera");
         camera.addComponent<Scrap::CameraComponent>();
 
+        // A lit 3D set alongside the sprites, so the editor opens on something that
+        // exercises both renderers in one frame.
+        struct Solid { const char* name; Scrap::PrimitiveKind kind; glm::vec3 pos;
+                       glm::vec3 scale; glm::vec4 albedo; float metallic; float roughness; };
+        const Solid solids[] = {
+            {"Floor",  Scrap::PrimitiveKind::Plane,  {0.0f, -1.8f, 0.0f}, {2.2f, 1.0f, 2.2f},
+             {0.20f, 0.22f, 0.25f, 1.0f}, 0.0f, 0.85f},
+            {"Brass Sphere", Scrap::PrimitiveKind::Sphere, {-1.5f, -0.9f, -1.0f}, {1.4f, 1.4f, 1.4f},
+             {0.85f, 0.62f, 0.28f, 1.0f}, 1.0f, 0.28f},
+            {"Steel Cube",   Scrap::PrimitiveKind::Cube,   {1.3f, -1.1f, -0.6f}, {1.2f, 1.2f, 1.2f},
+             {0.62f, 0.66f, 0.70f, 1.0f}, 1.0f, 0.42f},
+            {"Patina Cube",  Scrap::PrimitiveKind::Cube,   {0.1f, -1.25f, 1.1f}, {0.9f, 0.9f, 0.9f},
+             {0.18f, 0.64f, 0.59f, 1.0f}, 0.0f, 0.55f},
+        };
+        for (const auto& solid : solids)
+        {
+            Scrap::Entity e = scene->createEntity(solid.name);
+            auto& t = e.getComponent<Scrap::TransformComponent>();
+            t.translation = solid.pos;
+            t.scale = solid.scale;
+            auto& mr = e.addComponent<Scrap::MeshRendererComponent>();
+            mr.primitive = solid.kind;
+            mr.albedo = solid.albedo;
+            mr.metallic = solid.metallic;
+            mr.roughness = solid.roughness;
+        }
+
+        Scrap::Entity sun = scene->createEntity("Sun");
+        auto& sunLight = sun.addComponent<Scrap::LightComponent>();
+        sunLight.kind = Scrap::LightKind::Directional;
+        sunLight.intensity = 3.2f;
+        sunLight.color = {1.0f, 0.96f, 0.90f};
+        sun.getComponent<Scrap::TransformComponent>().rotation = {-0.85f, 0.6f, 0.0f};
+
+        Scrap::Entity fill = scene->createEntity("Fill Light");
+        auto& fillLight = fill.addComponent<Scrap::LightComponent>();
+        fillLight.color = {0.35f, 0.75f, 0.95f};
+        fillLight.intensity = 14.0f;
+        fillLight.range = 12.0f;
+        fill.getComponent<Scrap::TransformComponent>().translation = {2.4f, 1.4f, 2.2f};
+
         // Scripted out of the box, so pressing Play shows the managed loop running.
         scene->findByTag("Marker").addComponent<Scrap::ScriptComponent>().typeName = "Game.Spinner";
         scene->findByTag("Player").addComponent<Scrap::ScriptComponent>().typeName = "Game.Pulser";
+        scene->findByTag("Brass Sphere").addComponent<Scrap::ScriptComponent>().typeName = "Game.Spinner";
     }
 }
 
@@ -300,6 +342,14 @@ int main(int argc, char** argv)
         }
     }
 
+    // Open in the projection that suits the content: a scene with meshes wants a
+    // perspective view, a pure sprite scene does not.
+    if (ctx.editorScene->raw().view<Scrap::MeshRendererComponent>().size() > 0)
+    {
+        ctx.camera.setPerspective(true);
+        ctx.camera.setZoom(9.0f);
+    }
+
 #ifdef SCRAP_HAS_DOTNET
     // C# scripting. Signatures must match the [UnmanagedCallersOnly] declarations in
     // ScrapScript.Bootstrap exactly - the runtime hands back a raw function pointer
@@ -358,7 +408,9 @@ int main(int argc, char** argv)
         // mode the scene renders through its own primary camera instead of the
         // editor's - the whole point of CameraComponent.
         if (ctx.isPlaying()) ctx.activeScene->onRenderRuntime();
-        else                 ctx.activeScene->onRenderEditor(ctx.camera.getViewProjection());
+        else                 ctx.activeScene->onRenderEditor(ctx.camera.getViewProjection(),
+                                                             ctx.camera.getPosition(),
+                                                             ctx.showGrid);
 
         int displayWidth = 0, displayHeight = 0;
         glfwGetFramebufferSize(nativeWindow, &displayWidth, &displayHeight);
