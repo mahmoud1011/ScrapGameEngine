@@ -4,6 +4,7 @@
 
 #include "scene/Entity.h"
 #include "scene/Scene.h"
+#include "rhi/Framebuffer.h"
 
 #include <glm/glm.hpp>
 #include <deque>
@@ -67,6 +68,16 @@ namespace Scrap::Editor
         /** @brief Returns to the authored scene, discarding play-mode changes. */
         void onStop();
 
+        // --- render targets --------------------------------------------------
+        // Two, because Scene and Game are two simultaneous views of the same world
+        // through different cameras. Only the scene target carries an entity-id
+        // attachment; the game view never needs picking and would pay a clear for it.
+        ScrapGameEngine::Framebuffer sceneTarget;
+        ScrapGameEngine::Framebuffer gameTarget;
+
+        glm::vec2 gameViewportSize{1280.0f, 720.0f};
+        bool gameHasCamera = true;
+
         // --- viewport --------------------------------------------------------
         EditorCamera camera;
         glm::vec2 viewportSize{1280.0f, 720.0f};
@@ -80,6 +91,7 @@ namespace Scrap::Editor
         bool gizmoLocalSpace = false;
         bool showGrid = true;
         bool snapEnabled = false;
+        bool cullingEnabled = true;
         float translateSnap = 0.25f;
         float rotateSnap = 15.0f;
         float scaleSnap = 0.1f;

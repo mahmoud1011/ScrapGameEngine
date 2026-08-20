@@ -16,8 +16,17 @@ namespace Scrap::Editor
         /** @brief The top strip: play controls, gizmo mode, snapping. */
         void drawToolbar();
 
-        /** @brief The scene, drawn into the renderer's offscreen target. */
+        /** @brief The authoring view, drawn through the editor camera. */
         void drawViewport();
+
+        /**
+         * @brief The game view, drawn through the scene's own primary camera.
+         *
+         * What a player would see. Unity keeps these as separate tabs for the same
+         * reason: the editor camera must be free to fly around without changing what
+         * the game is framing.
+         */
+        void drawGameView();
 
         /** @brief The scene's object tree. */
         void drawHierarchy();

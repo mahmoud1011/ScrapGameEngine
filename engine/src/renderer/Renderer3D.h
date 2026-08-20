@@ -50,6 +50,27 @@ namespace ScrapGameEngine
         unsigned int drawCalls = 0;
         unsigned int meshCount = 0;
         unsigned int triangleCount = 0;
+        unsigned int culled = 0;        ///< Meshes rejected by the frustum test.
+        unsigned int uniformUploads = 0; ///< Per-draw uniform sets, for spotting waste.
+    };
+
+    /**
+     * @struct Frustum
+     * @brief Six clip planes extracted from a view-projection matrix.
+     *
+     * Used to reject meshes before they are submitted. A rejected mesh costs six dot
+     * products; a submitted one costs a draw call, a uniform block and vertex work,
+     * so this is worth doing even for modest scene sizes.
+     */
+    struct Frustum
+    {
+        glm::vec4 planes[6]{};
+
+        /** @brief Extracts planes via the Gribb-Hartmann method. */
+        static Frustum fromViewProjection(const glm::mat4& viewProjection);
+
+        /** @brief True when a world-space sphere is at least partly inside. */
+        bool intersectsSphere(const glm::vec3& center, float radius) const;
     };
 
     /**
@@ -87,10 +108,24 @@ namespace ScrapGameEngine
         /** @brief How many point lights the shader can hold. */
         static unsigned int maxPointLights();
 
-        /** @brief Draws a mesh with a material at a transform. */
+        /**
+         * @brief Draws a mesh with a material at a transform.
+         * @param entityId Written to the id attachment for picking; -1 to skip.
+         *
+         * Frustum-culled against the current pass. Per-frame uniforms (lights, camera,
+         * view-projection) are uploaded once in beginScene rather than per mesh.
+         */
         static void drawMesh(const std::shared_ptr<Mesh3D>& mesh,
                              const glm::mat4& transform,
-                             const Material& material);
+                             const Material& material,
+                             int entityId = -1);
+
+        /** @brief The frustum for the current pass. */
+        static const Frustum& getFrustum();
+
+        /** @brief Enables or disables frustum culling, for A/B measurement. */
+        static void setCullingEnabled(bool enabled);
+        static bool isCullingEnabled();
 
         /** @brief Draws the reference grid on the XZ plane. */
         static void drawGrid(const glm::mat4& viewProjection, float extent = 20.0f);

@@ -51,6 +51,28 @@ namespace Scrap
                             const glm::vec3& cameraPosition = glm::vec3(0.0f),
                             bool drawGrid = false);
 
+        /**
+         * @brief Renders into a caller-owned target through a given camera.
+         *
+         * The editor holds two targets - Scene and Game - so a single static one could
+         * only ever serve one panel.
+         */
+        void onRenderInto(ScrapGameEngine::Framebuffer& target,
+                          const glm::mat4& viewProjection,
+                          const glm::vec3& cameraPosition,
+                          bool drawGrid);
+
+        /**
+         * @brief Renders through the scene's own primary camera into a target.
+         * @return False when the scene has no primary camera to look through.
+         */
+        bool onRenderRuntimeInto(ScrapGameEngine::Framebuffer& target);
+
+        /** @brief The primary camera's view-projection, if the scene has one. */
+        bool primaryCameraViewProjection(glm::mat4& outViewProjection,
+                                         glm::vec3& outPosition,
+                                         float aspect) const;
+
         /** @brief Deep copy, so play mode never mutates the authored scene. */
         static std::shared_ptr<Scene> copy(const std::shared_ptr<Scene>& source);
 

@@ -134,6 +134,7 @@ namespace Scrap::Editor
             ImGui::DockBuilderDockWindow("Content", bottom);
             ImGui::DockBuilderDockWindow("Console", bottom);
             ImGui::DockBuilderDockWindow("Viewport", centre);
+            ImGui::DockBuilderDockWindow("Game", centre);
 
             // The toolbar is a fixed strip, not something to tab or resize away.
             if (ImGuiDockNode* node = ImGui::DockBuilderGetNode(toolbar))

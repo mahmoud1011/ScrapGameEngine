@@ -51,10 +51,18 @@ namespace ScrapGameEngine
          * @brief Starts a frame against a caller-supplied view-projection.
          *
          * The editor needs this: its camera must drive the scene pass while the game's
-         * Camera stays untouched. Once Camera becomes a component this stops being a
-         * separate entry point and is simply how every frame begins.
+         * Camera stays untouched.
          */
         static void beginFrameWith(const glm::mat4& viewProjection);
+
+        /**
+         * @brief Starts a frame into a caller-owned target.
+         *
+         * The editor holds two: one for the Scene view drawn through the editor camera,
+         * one for the Game view drawn through the scene's own camera. A single static
+         * target could only ever serve one of them.
+         */
+        static void beginFrameInto(Framebuffer& target, const glm::mat4& viewProjection);
 
         /**
          * @brief Flushes the batch and leaves the result in the scene target.

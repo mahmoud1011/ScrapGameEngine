@@ -6,6 +6,7 @@
 #include "renderer/Mesh3D.h"
 #include "renderer/Renderer2D.h"
 #include "renderer/Renderer3D.h"
+#include "rhi/Framebuffer.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/ScriptEngine.h"
@@ -91,7 +92,8 @@ namespace Scrap
         {
             const auto& transform = registry.get<TransformComponent>(entity);
             const auto& sprite = registry.get<SpriteRendererComponent>(entity);
-            ScrapGameEngine::Renderer2D::drawQuad(transform.matrix(), sprite.texture, sprite.color);
+            ScrapGameEngine::Renderer2D::drawQuad(transform.matrix(), sprite.texture,
+                                                  sprite.color, static_cast<int>(entity));
         }
     }
 
@@ -153,7 +155,8 @@ namespace Scrap
             }
 
             Renderer3D::drawMesh(mesh.mesh, transform.matrix(),
-                                 {mesh.albedo, mesh.metallic, mesh.roughness, mesh.emissive});
+                                 {mesh.albedo, mesh.metallic, mesh.roughness, mesh.emissive},
+                                 static_cast<int>(handle));
         }
 
         Renderer3D::endScene();
@@ -170,6 +173,63 @@ namespace Scrap
         renderSprites();
 
         ScrapGameEngine::Renderer::endFrameOffscreen();
+    }
+
+    bool Scene::primaryCameraViewProjection(glm::mat4& outViewProjection,
+                                            glm::vec3& outPosition, float aspect) const
+    {
+        for (auto handle : registry.view<const TransformComponent, const CameraComponent>())
+        {
+            const auto& camera = registry.get<const CameraComponent>(handle);
+            if (!camera.primary) continue;
+
+            const auto& transform = registry.get<const TransformComponent>(handle);
+            const glm::mat4 projection =
+                camera.projection == ProjectionKind::Perspective
+                    ? glm::perspective(glm::radians(camera.fovDegrees), aspect,
+                                       0.03f, camera.farClip)
+                    : glm::ortho(-camera.orthoSize * aspect, camera.orthoSize * aspect,
+                                 -camera.orthoSize, camera.orthoSize,
+                                 camera.nearClip, camera.farClip);
+
+            outViewProjection = projection * glm::inverse(transform.matrix());
+            outPosition = transform.translation;
+            return true;
+        }
+        return false;
+    }
+
+    void Scene::onRenderInto(ScrapGameEngine::Framebuffer& target,
+                             const glm::mat4& viewProjection,
+                             const glm::vec3& cameraPosition, bool drawGrid)
+    {
+        ScrapGameEngine::Renderer::beginFrameInto(target, viewProjection);
+        renderMeshes(viewProjection, cameraPosition);
+        if (drawGrid) ScrapGameEngine::Renderer3D::drawGrid(viewProjection);
+        renderSprites();
+        ScrapGameEngine::Renderer::endFrameOffscreen();
+    }
+
+    bool Scene::onRenderRuntimeInto(ScrapGameEngine::Framebuffer& target)
+    {
+        const auto& spec = target.getSpec();
+        const float aspect = spec.height > 0
+            ? static_cast<float>(spec.width) / static_cast<float>(spec.height) : 1.0f;
+
+        glm::mat4 viewProjection{1.0f};
+        glm::vec3 position{0.0f};
+        if (!primaryCameraViewProjection(viewProjection, position, aspect))
+        {
+            // No camera: clear rather than leaving the last frame on screen, which
+            // would read as "the game is running" when nothing is being rendered.
+            target.bind();
+            target.clear(0.02f, 0.02f, 0.03f, 1.0f);
+            ScrapGameEngine::Framebuffer::unbind();
+            return false;
+        }
+
+        onRenderInto(target, viewProjection, position, false);
+        return true;
     }
 
     void Scene::onRenderRuntime()

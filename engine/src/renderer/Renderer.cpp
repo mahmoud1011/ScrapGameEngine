@@ -17,6 +17,7 @@ glm::vec4 Renderer::clearColor{0.25f, 0.25f, 0.25f, 1.0f};
 namespace
 {
     Framebuffer sceneTarget;
+    Framebuffer* activeTarget = nullptr;
     int windowWidth = 1;
     int windowHeight = 1;
 }
@@ -72,10 +73,16 @@ void Renderer::beginFrame()
 
 void Renderer::beginFrameWith(const glm::mat4& viewProjection)
 {
-    isRendering = true;
+    beginFrameInto(sceneTarget, viewProjection);
+}
 
-    sceneTarget.bind();
-    clear();
+void Renderer::beginFrameInto(Framebuffer& target, const glm::mat4& viewProjection)
+{
+    isRendering = true;
+    activeTarget = &target;
+
+    target.bind();
+    target.clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     Renderer2D::beginScene(viewProjection);
 }
 
@@ -83,6 +90,7 @@ void Renderer::endFrameOffscreen()
 {
     Renderer2D::endScene();
     Framebuffer::unbind();
+    activeTarget = nullptr;
     isRendering = false;
 }
 

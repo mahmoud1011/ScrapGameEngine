@@ -34,6 +34,8 @@ namespace
 
         bool initialized = false;
         bool sceneActive = false;
+        bool cullingEnabled = true;
+        Frustum frustum;
         Renderer3DStats stats;
     };
 
@@ -68,6 +70,9 @@ void main()
     // standard metallic-roughness model, so glTF materials transfer without conversion.
     const char* kFragmentSource = R"(#version 330 core
 layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int o_EntityId;
+
+uniform int u_EntityId;
 
 in vec3 v_WorldPos;
 in vec3 v_Normal;
@@ -169,6 +174,7 @@ void main()
     color = pow(color, vec3(1.0 / 2.2)); // to sRGB
 
     o_Color = vec4(color, u_Albedo.a);
+    o_EntityId = u_EntityId;
 }
 )";
 
@@ -185,6 +191,7 @@ void main()
 
     const char* kGridFragment = R"(#version 330 core
 layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int o_EntityId;
 in vec3 v_Position;
 uniform vec3 u_CameraPos;
 uniform vec4 u_Color;
@@ -195,6 +202,7 @@ void main()
     float d = length(v_Position - vec3(u_CameraPos.x, 0.0, u_CameraPos.z));
     float fade = clamp(1.0 - d / u_Extent, 0.0, 1.0);
     o_Color = vec4(u_Color.rgb, u_Color.a * fade * fade);
+    o_EntityId = -1;
 }
 )";
 }
@@ -247,14 +255,67 @@ void Renderer3D::shutdown()
 
 unsigned int Renderer3D::maxPointLights() { return kMaxPointLights; }
 
+Frustum Frustum::fromViewProjection(const glm::mat4& m)
+{
+    // Gribb-Hartmann: each plane is a sum or difference of two matrix rows.
+    Frustum f;
+    for (int i = 0; i < 3; i++)
+    {
+        f.planes[i * 2 + 0] = glm::vec4(m[0][3] + m[0][i], m[1][3] + m[1][i],
+                                        m[2][3] + m[2][i], m[3][3] + m[3][i]);
+        f.planes[i * 2 + 1] = glm::vec4(m[0][3] - m[0][i], m[1][3] - m[1][i],
+                                        m[2][3] - m[2][i], m[3][3] - m[3][i]);
+    }
+    for (auto& plane : f.planes)
+    {
+        const float length = glm::length(glm::vec3(plane));
+        if (length > 0.0f) plane /= length;
+    }
+    return f;
+}
+
+bool Frustum::intersectsSphere(const glm::vec3& center, float radius) const
+{
+    for (const auto& plane : planes)
+    {
+        if (glm::dot(glm::vec3(plane), center) + plane.w < -radius) return false;
+    }
+    return true;
+}
+
 void Renderer3D::beginScene(const glm::mat4& viewProjection, const glm::vec3& cameraPosition)
 {
     if (!s.initialized) return;
     s.viewProjection = viewProjection;
     s.cameraPosition = cameraPosition;
+    s.frustum = Frustum::fromViewProjection(viewProjection);
     s.stats = Renderer3DStats{};
     s.sceneActive = true;
+
+    // Everything that does not vary per mesh is uploaded once here. Previously all of
+    // this - including up to 32 light uniforms - was re-sent for every single mesh,
+    // which dominated the draw path in any scene with more than a handful of objects.
+    s.shader.bind();
+    s.shader.setMat4("u_ViewProjection", viewProjection);
+    s.shader.setVec3("u_CameraPos", cameraPosition);
+    s.shader.setVec3("u_SunDirection", s.sun.direction);
+    s.shader.setVec3("u_SunColor", s.sun.color);
+    s.shader.setFloat("u_SunIntensity", s.sun.intensity);
+    s.shader.setInt("u_PointLightCount", static_cast<int>(s.pointLightCount));
+
+    for (unsigned int i = 0; i < s.pointLightCount; i++)
+    {
+        const std::string index = "[" + std::to_string(i) + "]";
+        s.shader.setVec3("u_PointPos" + index, s.pointLights[i].position);
+        s.shader.setVec3("u_PointColor" + index, s.pointLights[i].color);
+        s.shader.setFloat("u_PointIntensity" + index, s.pointLights[i].intensity);
+        s.shader.setFloat("u_PointRange" + index, s.pointLights[i].range);
+    }
 }
+
+const Frustum& Renderer3D::getFrustum() { return s.frustum; }
+void Renderer3D::setCullingEnabled(bool enabled) { s.cullingEnabled = enabled; }
+bool Renderer3D::isCullingEnabled() { return s.cullingEnabled; }
 
 void Renderer3D::endScene()
 {
@@ -271,12 +332,29 @@ void Renderer3D::addPointLight(const PointLight& light)
 }
 
 void Renderer3D::drawMesh(const std::shared_ptr<Mesh3D>& mesh, const glm::mat4& transform,
-                          const Material& material)
+                          const Material& material, int entityId)
 {
     if (!s.initialized || !s.sceneActive || !mesh || !mesh->isValid()) return;
 
+    if (s.cullingEnabled)
+    {
+        // The primitives are all within a unit radius of their origin, so the world
+        // bound is that radius scaled by the largest axis. Conservative, and exact
+        // enough that a false accept only costs one wasted draw.
+        const glm::vec3 center = glm::vec3(transform[3]);
+        const float sx = glm::length(glm::vec3(transform[0]));
+        const float sy = glm::length(glm::vec3(transform[1]));
+        const float sz = glm::length(glm::vec3(transform[2]));
+        const float radius = 0.87f * (sx > sy ? (sx > sz ? sx : sz) : (sy > sz ? sy : sz));
+
+        if (!s.frustum.intersectsSphere(center, radius))
+        {
+            s.stats.culled++;
+            return;
+        }
+    }
+
     s.shader.bind();
-    s.shader.setMat4("u_ViewProjection", s.viewProjection);
     s.shader.setMat4("u_Model", transform);
 
     // glm::inverseTranspose of the upper 3x3, so non-uniform scale keeps normals correct.
@@ -288,21 +366,8 @@ void Renderer3D::drawMesh(const std::shared_ptr<Mesh3D>& mesh, const glm::mat4& 
     s.shader.setFloat("u_Metallic", material.metallic);
     s.shader.setFloat("u_Roughness", material.roughness);
     s.shader.setFloat("u_Emissive", material.emissive);
-
-    s.shader.setVec3("u_CameraPos", s.cameraPosition);
-    s.shader.setVec3("u_SunDirection", s.sun.direction);
-    s.shader.setVec3("u_SunColor", s.sun.color);
-    s.shader.setFloat("u_SunIntensity", s.sun.intensity);
-
-    s.shader.setInt("u_PointLightCount", static_cast<int>(s.pointLightCount));
-    for (unsigned int i = 0; i < s.pointLightCount; i++)
-    {
-        const std::string index = "[" + std::to_string(i) + "]";
-        s.shader.setVec3("u_PointPos" + index, s.pointLights[i].position);
-        s.shader.setVec3("u_PointColor" + index, s.pointLights[i].color);
-        s.shader.setFloat("u_PointIntensity" + index, s.pointLights[i].intensity);
-        s.shader.setFloat("u_PointRange" + index, s.pointLights[i].range);
-    }
+    s.shader.setInt("u_EntityId", entityId);
+    s.stats.uniformUploads += 6;
 
     mesh->bind();
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->getIndexCount()),

@@ -65,7 +65,7 @@ namespace ScrapGameEngine
          * editor gizmo hands over directly.
          */
         static void drawQuad(const glm::mat4& transform, Texture2D* texture,
-                             const glm::vec4& tint);
+                             const glm::vec4& tint, int entityId = -1);
 
         static const Renderer2DStats& getStats();
 

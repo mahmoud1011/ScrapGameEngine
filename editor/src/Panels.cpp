@@ -12,6 +12,8 @@
 #include "scripting/ScriptEngine.h"
 #endif
 
+#include <entt/entt.hpp>
+
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -188,6 +190,13 @@ namespace Scrap::Editor
         if (toolToggle("Grid", ctx.showGrid, "Show the viewport grid"))
             ctx.showGrid = !ctx.showGrid;
         ImGui::SameLine();
+        if (toolToggle("Cull", ctx.cullingEnabled,
+                       "Frustum culling - toggle to compare draw counts"))
+        {
+            ctx.cullingEnabled = !ctx.cullingEnabled;
+            Renderer3D::setCullingEnabled(ctx.cullingEnabled);
+        }
+        ImGui::SameLine();
         if (toolToggle(ctx.camera.isPerspective() ? "3D" : "2D", ctx.camera.isPerspective(),
                        "Toggle the editor camera projection"))
             ctx.camera.setPerspective(!ctx.camera.isPerspective());
@@ -225,7 +234,7 @@ namespace Scrap::Editor
 
         if (avail.x > 0.0f && avail.y > 0.0f)
         {
-            auto& target = Renderer::getSceneTarget();
+            auto& target = ctx.sceneTarget;
             target.resize(static_cast<unsigned int>(avail.x), static_cast<unsigned int>(avail.y));
             ctx.camera.setViewportSize(avail.x, avail.y);
 
@@ -233,6 +242,21 @@ namespace Scrap::Editor
             // ImGui image. UVs are flipped because GL's origin is bottom-left.
             ImGui::Image(static_cast<ImTextureID>(target.getColorAttachment()),
                          avail, ImVec2(0, 1), ImVec2(1, 0));
+
+            // Picking: read the entity id under the cursor. Only on click, because a
+            // pixel read stalls the pipeline waiting on the GPU.
+            if (ctx.viewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                !ImGuizmo::IsOver())
+            {
+                const ImVec2 mouse = ImGui::GetMousePos();
+                const int px = static_cast<int>(mouse.x - origin.x);
+                // Flip Y: the framebuffer's origin is bottom-left, the panel's is top-left.
+                const int py = static_cast<int>(avail.y - (mouse.y - origin.y));
+
+                const int id = target.readEntityId(px, py);
+                if (id < 0) ctx.clearSelection();
+                else ctx.select(Entity{static_cast<entt::entity>(id), ctx.activeScene.get()});
+            }
 
             // A hairline frame keeps the viewport visually distinct from the chrome.
             ImGui::GetWindowDrawList()->AddRect(
@@ -277,6 +301,46 @@ namespace Scrap::Editor
                 transform.rotation += deltaRotation;
                 transform.scale = sc;
             }
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+
+    // --------------------------------------------------------------- game view
+
+    void Panels::drawGameView()
+    {
+        auto& ctx = EditorContext::get();
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin("Game");
+
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        ctx.gameViewportSize = {avail.x, avail.y};
+
+        if (avail.x > 0.0f && avail.y > 0.0f)
+        {
+            ctx.gameTarget.resize(static_cast<unsigned int>(avail.x),
+                                  static_cast<unsigned int>(avail.y));
+            ImGui::Image(static_cast<ImTextureID>(ctx.gameTarget.getColorAttachment()),
+                         avail, ImVec2(0, 1), ImVec2(1, 0));
+
+            if (!ctx.gameHasCamera)
+            {
+                // Say why the view is empty rather than leaving a black rectangle.
+                const char* message = "No primary camera in the scene";
+                const ImVec2 size = ImGui::CalcTextSize(message);
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(origin.x + (avail.x - size.x) * 0.5f,
+                           origin.y + (avail.y - size.y) * 0.5f),
+                    ImGui::GetColorU32(P::Warning), message);
+            }
+
+            ImGui::GetWindowDrawList()->AddRect(
+                origin, ImVec2(origin.x + avail.x, origin.y + avail.y),
+                ImGui::GetColorU32(ctx.isPlaying() ? P::Accent : P::Line));
         }
 
         ImGui::End();
@@ -735,6 +799,16 @@ namespace Scrap::Editor
             ImGui::Text("Draw calls  %u", stats3d.drawCalls);
             ImGui::Text("Meshes      %u", stats3d.meshCount);
             ImGui::Text("Triangles   %u", stats3d.triangleCount);
+            ImGui::Text("Culled      %u", stats3d.culled);
+            ImGui::Text("Uniforms    %u", stats3d.uniformUploads);
+
+            const unsigned int considered = stats3d.meshCount + stats3d.culled;
+            ImGui::PushStyleColor(ImGuiCol_Text, P::InkMuted);
+            if (considered > 0)
+                ImGui::Text("%.0f%% culled",
+                            100.0f * static_cast<float>(stats3d.culled) /
+                            static_cast<float>(considered));
+            ImGui::PopStyleColor();
         }
 
         ImGui::Spacing();

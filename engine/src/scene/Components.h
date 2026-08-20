@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-namespace ScrapGameEngine { class Texture2D; class Mesh3D; }
+namespace ScrapGameEngine { class Texture2D; class Mesh3D; class Framebuffer; }
 
 namespace Scrap
 {

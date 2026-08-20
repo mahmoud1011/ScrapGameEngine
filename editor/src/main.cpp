@@ -16,15 +16,18 @@
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
 #include "renderer/Renderer2D.h"
+#include "renderer/Renderer3D.h"
 #include "scene/Entity.h"
 #include "scene/Scene.h"
 #include "scene/SceneSerializer.h"
+#include "rhi/Framebuffer.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/DotNetHost.h"
 #include "scripting/ScriptEngine.h"
 #endif
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -34,6 +37,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 
 using namespace ScrapGameEngine;
@@ -271,6 +275,132 @@ static int runScriptTest()
 }
 #endif
 
+
+/**
+ * Repeatable render benchmark. `ScrapEditor --stress [count]`.
+ *
+ * Spawns `count` meshes in a slab that extends well past the near frustum, runs a
+ * fixed number of frames in each configuration, and reports mean frame time. The
+ * point is that the optimizations are measured rather than asserted - and that the
+ * numbers can be re-checked after any renderer change.
+ */
+static int runStress(int meshCount)
+{
+    AppWindowData windowData(1280, 720, "ScrapEngine Benchmark");
+    AppWindow window(windowData);
+    if (window.init(windowData) <= 0) { std::cerr << "FAIL: window\n"; return 1; }
+
+    auto* nativeWindow = static_cast<GLFWwindow*>(window.getNativeWindow());
+    // Uncapped, otherwise every configuration measures the swap interval instead.
+    glfwSwapInterval(0);
+
+    if (!Renderer::init(1280, 720)) { std::cerr << "FAIL: renderer\n"; return 1; }
+
+    FramebufferSpec spec; spec.width = 1280; spec.height = 720; spec.depth = true;
+    Framebuffer target;
+    if (!target.create(spec)) { std::cerr << "FAIL: target\n"; return 1; }
+
+    auto scene = std::make_shared<Scrap::Scene>();
+    const int side = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(meshCount))));
+    int made = 0;
+    for (int z = 0; z < side && made < meshCount; z++)
+    {
+        for (int x = 0; x < side && made < meshCount; x++, made++)
+        {
+            Scrap::Entity e = scene->createEntity("Cube");
+            auto& t = e.getComponent<Scrap::TransformComponent>();
+            t.translation = {static_cast<float>(x - side / 2) * 1.6f, 0.0f,
+                             static_cast<float>(z) * -1.6f};
+            t.scale = glm::vec3(0.7f);
+            auto& mr = e.addComponent<Scrap::MeshRendererComponent>();
+            mr.primitive = Scrap::PrimitiveKind::Cube;
+            mr.albedo = {0.6f, 0.65f, 0.7f, 1.0f};
+            mr.metallic = 0.2f;
+        }
+    }
+
+    Scrap::Entity sun = scene->createEntity("Sun");
+    auto& sunLight = sun.addComponent<Scrap::LightComponent>();
+    sunLight.kind = Scrap::LightKind::Directional;
+    sun.getComponent<Scrap::TransformComponent>().rotation = {-0.9f, 0.4f, 0.0f};
+
+    // Fill the point-light slots, since per-frame vs per-draw uniform cost is exactly
+    // what scales with them - the case the split was meant to fix.
+    for (unsigned int i = 0; i < ScrapGameEngine::Renderer3D::maxPointLights(); i++)
+    {
+        Scrap::Entity light = scene->createEntity("Point");
+        auto& lc = light.addComponent<Scrap::LightComponent>();
+        lc.intensity = 6.0f;
+        lc.range = 25.0f;
+        light.getComponent<Scrap::TransformComponent>().translation =
+            {static_cast<float>(i) * 3.0f - 10.0f, 3.0f, -6.0f};
+    }
+
+    // The camera matrices are built directly rather than through EditorCamera, which
+    // reads ImGui state for its controls and there is no ImGui context here.
+    const glm::vec3 cameraPosition{0.0f, 5.0f, 8.0f};
+    const glm::mat4 view = glm::lookAt(cameraPosition, glm::vec3(0.0f, 0.0f, -12.0f),
+                                       glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(glm::radians(55.0f), 1280.0f / 720.0f,
+                                                  0.1f, 300.0f);
+    const glm::mat4 viewProjection = projection * view;
+
+    constexpr int kWarmup = 30;
+    constexpr int kFrames = 200;
+
+    auto measure = [&](bool culling) {
+        ScrapGameEngine::Renderer3D::setCullingEnabled(culling);
+        for (int i = 0; i < kWarmup; i++)
+        {
+            scene->onRenderInto(target, viewProjection, cameraPosition, false);
+            glfwPollEvents();
+        }
+        glFinish();
+
+        const auto start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < kFrames; i++)
+        {
+            scene->onRenderInto(target, viewProjection, cameraPosition, false);
+        }
+        glFinish();
+        const auto end = std::chrono::high_resolution_clock::now();
+        return std::chrono::duration<double, std::milli>(end - start).count() / kFrames;
+    };
+
+    const double withoutCulling = measure(false);
+    const auto statsOff = ScrapGameEngine::Renderer3D::getStats();
+    const double withCulling = measure(true);
+    const auto statsOn = ScrapGameEngine::Renderer3D::getStats();
+
+    std::cout << "\n=== ScrapEngine render benchmark ===\n"
+              << "meshes submitted   " << meshCount << "\n"
+              << "point lights       " << ScrapGameEngine::Renderer3D::maxPointLights() << "\n"
+              << "frames per config  " << kFrames << "\n\n";
+
+    std::cout << "culling OFF   " << withoutCulling << " ms/frame   drawn "
+              << statsOff.meshCount << "   culled " << statsOff.culled
+              << "   uniform sets " << statsOff.uniformUploads << "\n";
+    std::cout << "culling ON    " << withCulling << " ms/frame   drawn "
+              << statsOn.meshCount << "   culled " << statsOn.culled
+              << "   uniform sets " << statsOn.uniformUploads << "\n";
+
+    if (withCulling > 0.0)
+    {
+        std::cout << "\nspeedup       " << (withoutCulling / withCulling) << "x\n";
+    }
+
+    // What the per-frame uniform split saves: every light uniform used to be re-sent
+    // for every mesh, so the old cost grew with meshes x lights.
+    const unsigned int perDrawNow = statsOn.meshCount * 6;
+    const unsigned int perDrawBefore =
+        statsOn.meshCount * (6 + 6 + ScrapGameEngine::Renderer3D::maxPointLights() * 4);
+    std::cout << "uniform sets  " << perDrawBefore << " before the per-frame split -> "
+              << perDrawNow << " now\n" << std::endl;
+
+    Renderer::shutdown();
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; i++)
@@ -280,6 +410,11 @@ int main(int argc, char** argv)
 #ifdef SCRAP_HAS_DOTNET
         if (arg == "--scripttest") return runScriptTest();
 #endif
+        if (arg == "--stress")
+        {
+            const int count = (i + 1 < argc) ? std::atoi(argv[i + 1]) : 2000;
+            return runStress(count > 0 ? count : 2000);
+        }
     }
 
     AppWindowData windowData(1600, 900, "ScrapEditor");
@@ -315,6 +450,17 @@ int main(int argc, char** argv)
 
     auto& ctx = EditorContext::get();
     ctx.camera.reset();
+
+    // Scene target carries the entity-id attachment for picking; the game target does
+    // not, since nothing picks in it and the extra clear would be wasted every frame.
+    FramebufferSpec sceneSpec; sceneSpec.width = 1280; sceneSpec.height = 720;
+    sceneSpec.depth = true;  sceneSpec.entityId = true;
+    FramebufferSpec gameSpec = sceneSpec; gameSpec.entityId = false;
+    if (!ctx.sceneTarget.create(sceneSpec) || !ctx.gameTarget.create(gameSpec))
+    {
+        std::cerr << "[EDITOR] could not create render targets." << std::endl;
+        return 1;
+    }
     ctx.logInfo("ScrapEditor ready.");
 
     // Root the content browser at the sandbox's assets if they are alongside us.
@@ -404,13 +550,12 @@ int main(int argc, char** argv)
         if (scriptTick && ctx.isPlaying()) scriptTick(deltaTime);
 #endif
 
-        // Scene pass into the offscreen target the viewport panel samples. In play
-        // mode the scene renders through its own primary camera instead of the
-        // editor's - the whole point of CameraComponent.
-        if (ctx.isPlaying()) ctx.activeScene->onRenderRuntime();
-        else                 ctx.activeScene->onRenderEditor(ctx.camera.getViewProjection(),
-                                                             ctx.camera.getPosition(),
-                                                             ctx.showGrid);
+        // Two passes: the Scene view through the editor camera, and the Game view
+        // through the scene's own camera. Both run in edit mode too, so the Game view
+        // previews framing while you author - which is the point of having it.
+        ctx.activeScene->onRenderInto(ctx.sceneTarget, ctx.camera.getViewProjection(),
+                                      ctx.camera.getPosition(), ctx.showGrid);
+        ctx.gameHasCamera = ctx.activeScene->onRenderRuntimeInto(ctx.gameTarget);
 
         int displayWidth = 0, displayHeight = 0;
         glfwGetFramebufferSize(nativeWindow, &displayWidth, &displayHeight);
@@ -473,6 +618,7 @@ int main(int argc, char** argv)
 
         Panels::drawToolbar();
         Panels::drawViewport();
+        Panels::drawGameView();
         Panels::drawHierarchy();
         Panels::drawInspector();
         Panels::drawContentBrowser();
