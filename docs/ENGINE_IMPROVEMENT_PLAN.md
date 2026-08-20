@@ -1,7 +1,7 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: **Phases 0, 1 and 2 complete.** C# scripting hosted. Phase 3 (scene model) next.
+Status: **Phases 0–3 complete.** C# scripting hosted. Phase 4 (3D) next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
 
 Platform targets: Windows, macOS and Linux first; Android and iOS once the render
@@ -411,21 +411,42 @@ Two engine changes the editor forced, both anticipated by the plan:
 - `Input::init`/`process` were private and friended to `Application`, which assumed the
   game loop was the only host. They are part of the contract now.
 
-### Phase 3 — Scene model + serialization ← **next**
+### Phase 3 — Scene model + serialization ✅ **Complete**
 
 > *Goal: the editor can save your work.*
 
-- EnTT-backed `Scene`/`Entity`; components: ID(UUID), Tag, Transform, SpriteRenderer, MeshRenderer, Camera, Light, NativeScript
-- `SceneSerializer` → `.scrapscene` YAML
-- Play / Pause / Stop with copy-on-play, so Stop restores the edit state
-- Prefabs
-- Bind the hosted C# layer to entities: a `ScriptComponent` naming a managed type, and
-  entities crossing the boundary as integer handles. The runtime is already hosted
-  (D10); what it lacks is a scene to talk about.
+- [x] EnTT-backed `Scene`/`Entity`; components for ID(UUID), Tag, Transform, SpriteRenderer, Camera, Script
+- [x] `SceneSerializer` writing `.scrapscene` YAML
+- [x] Play / Pause / Stop with copy-on-play, so Stop restores the edit state
+- [x] `TransformComponent` is vec3 throughout — D3 lands here, 2D is the z=0 case
+- [ ] Prefabs — **not done**, deferred with the asset pipeline
+- [ ] Script dispatch — `ScriptComponent` exists and serializes, but `onUpdateRuntime`
+      does not yet resolve it against the hosted runtime
 
-**Exit criteria:** build a scene in the editor, save, close, reopen, hit Play, get your game. Hit Stop, get your edits back.
+**Exit criteria — met.** Verified headlessly with `ScrapEditor --selftest`: six entities
+survive save and reload with UUIDs stable and transforms exact, and `Scene::copy` is a
+genuine deep copy — mutating the play-mode snapshot leaves the authored scene untouched.
+In the editor, entities are created from the hierarchy context menu, components added and
+removed in the inspector, and the whole scene saved with Ctrl+S.
 
-### Phase 4 — 3D
+Notes:
+
+- **UUIDs exist because entt handles are recycled.** A scene file has to reference
+  identity, not an index, or a reload silently rewires references.
+- **Play mode renders through the scene's own primary `CameraComponent`**, not the editor
+  camera. That is the thing the static `Camera` could never express, and the reason D4
+  was on the critical path.
+- **`entt::` stays confined** to `Entity.h` and `Scene`'s private section. The plan flags
+  that leak as the one most worth guarding, and it is guarded.
+- **A real editor bug came out of it:** no keyboard shortcut had ever worked.
+  `ImGuiConfigFlags_NavEnableKeyboard` makes `WantCaptureKeyboard` true whenever any panel
+  has focus, so the gate swallowed every press. It now checks `WantTextInput`, which is
+  only true for an active text field.
+
+The old `GameObject` / `GameObjectCollection` path still exists and still backs the
+sandbox. It is removed once the sandbox moves onto `Scene`.
+
+### Phase 4 — 3D ← **next**
 
 - `Renderer3D` forward renderer, PBR-lite (albedo / normal / metallic / roughness)
 - Directional + point lights; shadow maps
