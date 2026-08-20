@@ -4,9 +4,8 @@
 
 #include "renderer/Renderer.h"
 #include "rhi/Framebuffer.h"
-#include "scene/GameObject.h"
-#include "scene/GameObjectCollection.h"
-#include "scene/Transform.h"
+#include "scene/Entity.h"
+#include "scene/Scene.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -18,6 +17,7 @@
 #include <vector>
 
 using namespace ScrapGameEngine;
+using Scrap::Entity;
 
 namespace Scrap::Editor
 {
@@ -143,8 +143,8 @@ namespace Scrap::Editor
         const bool playing = ctx.playState == PlayState::Playing;
         if (toolToggle(playing ? "Stop" : "Play", playing, playing ? "Stop playing" : "Enter play mode"))
         {
-            ctx.playState = playing ? PlayState::Edit : PlayState::Playing;
-            ctx.logInfo(playing ? "Exited play mode." : "Entered play mode.");
+            if (playing) { ctx.onStop(); ctx.logInfo("Exited play mode - edits restored."); }
+            else         { ctx.onPlay(); ctx.logInfo("Entered play mode on a scene copy."); }
         }
         ImGui::SameLine();
 
@@ -242,26 +242,15 @@ namespace Scrap::Editor
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(origin.x, origin.y, avail.x, avail.y);
 
-            Transform* transform = ctx.selection->transform;
-            const glm::vec2 pos = transform->getPosition();
-            const glm::vec2 scale = transform->getLocalScale();
-            const float rotation = transform->getLocalRotation();
-
-            // The engine's Transform is still 2D, so the matrix is assembled here and
-            // decomposed back afterwards. D3's vec3 TransformComponent removes this.
-            glm::mat4 matrix(1.0f);
-            ImGuizmo::RecomposeMatrixFromComponents(
-                glm::value_ptr(glm::vec3(pos.x, pos.y, 0.0f)),
-                glm::value_ptr(glm::vec3(0.0f, 0.0f, rotation)),
-                glm::value_ptr(glm::vec3(scale.x, scale.y, 1.0f)),
-                glm::value_ptr(matrix));
+            auto& transform = ctx.selection.getComponent<Scrap::TransformComponent>();
+            glm::mat4 matrix = transform.matrix();
 
             const ImGuizmo::OPERATION op =
                 ctx.gizmoOp == GizmoOp::Translate ? ImGuizmo::TRANSLATE :
                 ctx.gizmoOp == GizmoOp::Rotate    ? ImGuizmo::ROTATE : ImGuizmo::SCALE;
 
-            float snapValue = ctx.gizmoOp == GizmoOp::Translate ? ctx.translateSnap :
-                              ctx.gizmoOp == GizmoOp::Rotate    ? ctx.rotateSnap : ctx.scaleSnap;
+            const float snapValue = ctx.gizmoOp == GizmoOp::Translate ? ctx.translateSnap :
+                                    ctx.gizmoOp == GizmoOp::Rotate    ? ctx.rotateSnap : ctx.scaleSnap;
             const float snap[3] = {snapValue, snapValue, snapValue};
 
             const glm::mat4 view = ctx.camera.getView();
@@ -272,14 +261,16 @@ namespace Scrap::Editor
                                      glm::value_ptr(matrix), nullptr,
                                      ctx.snapEnabled ? snap : nullptr))
             {
-                glm::vec3 outT{}, outR{}, outS{};
+                glm::vec3 t{}, r{}, sc{};
                 ImGuizmo::DecomposeMatrixToComponents(
-                    glm::value_ptr(matrix), glm::value_ptr(outT),
-                    glm::value_ptr(outR), glm::value_ptr(outS));
+                    glm::value_ptr(matrix), glm::value_ptr(t), glm::value_ptr(r), glm::value_ptr(sc));
 
-                transform->setPosition({outT.x, outT.y});
-                transform->setRotation(outR.z);
-                transform->setScale({outS.x, outS.y});
+                // ImGuizmo works in degrees; the component stores radians. Rotation is
+                // written as a delta so gimbal wrap does not snap the object around.
+                const glm::vec3 deltaRotation = glm::radians(r) - transform.rotation;
+                transform.translation = t;
+                transform.rotation += deltaRotation;
+                transform.scale = sc;
             }
         }
 
@@ -298,16 +289,18 @@ namespace Scrap::Editor
         ImGui::InputTextWithHint("##filter", "Filter objects", hierarchyFilter, sizeof(hierarchyFilter));
         ImGui::Spacing();
 
-        const auto& objects = GameObjectCollection::all();
+        auto scene = ctx.activeScene;
+        if (!scene) { ImGui::End(); return; }
+
         std::string filter = hierarchyFilter;
         std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
 
         int visible = 0;
-        for (GameObject* go : objects)
+        for (auto handle : scene->raw().view<Scrap::TagComponent>())
         {
-            if (go == nullptr) continue;
+            Entity entity{handle, scene.get()};
+            std::string name = entity.getName();
 
-            std::string name = go->getName();
             if (!filter.empty())
             {
                 std::string lower = name;
@@ -319,28 +312,56 @@ namespace Scrap::Editor
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth |
                                        ImGuiTreeNodeFlags_Leaf |
                                        ImGuiTreeNodeFlags_NoTreePushOnOpen;
-            if (ctx.selection == go) flags |= ImGuiTreeNodeFlags_Selected;
+            if (ctx.selection == entity) flags |= ImGuiTreeNodeFlags_Selected;
 
-            ImGui::PushID(go);
+            ImGui::PushID(static_cast<int>(static_cast<uint32_t>(entity)));
             ImGui::TreeNodeEx(name.empty() ? "(unnamed)" : name.c_str(), flags);
-            if (ImGui::IsItemClicked()) ctx.select(go);
+            if (ImGui::IsItemClicked()) ctx.select(entity);
+
+            if (ImGui::BeginPopupContextItem())
+            {
+                if (ImGui::MenuItem("Delete Entity"))
+                {
+                    if (ctx.selection == entity) ctx.clearSelection();
+                    scene->destroyEntity(entity);
+                }
+                ImGui::EndPopup();
+            }
             ImGui::PopID();
         }
 
         if (visible == 0)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
-            ImGui::TextWrapped(objects.empty()
-                ? "No objects in the scene."
+            ImGui::TextWrapped(scene->entityCount() == 0
+                ? "No entities in the scene. Right-click here to add one."
                 : "Nothing matches that filter.");
             ImGui::PopStyleColor();
         }
 
-        // Clicking empty space clears the selection, as in most editors.
         if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
             !ImGui::IsAnyItemHovered())
         {
             ctx.clearSelection();
+        }
+
+        if (ImGui::BeginPopupContextWindow("##hierarchyMenu",
+                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+        {
+            if (ImGui::MenuItem("Create Empty")) ctx.select(scene->createEntity("Entity"));
+            if (ImGui::MenuItem("Create Sprite"))
+            {
+                Entity e = scene->createEntity("Sprite");
+                e.addComponent<Scrap::SpriteRendererComponent>();
+                ctx.select(e);
+            }
+            if (ImGui::MenuItem("Create Camera"))
+            {
+                Entity e = scene->createEntity("Camera");
+                e.addComponent<Scrap::CameraComponent>();
+                ctx.select(e);
+            }
+            ImGui::EndPopup();
         }
 
         ImGui::End();
@@ -362,51 +383,115 @@ namespace Scrap::Editor
             return;
         }
 
-        GameObject* go = ctx.selection;
+        Entity entity = ctx.selection;
 
         char nameBuffer[128];
-        std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", go->getName().c_str());
+        std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", entity.getName().c_str());
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::InputText("##name", nameBuffer, sizeof(nameBuffer)))
-            go->setName(nameBuffer);
+            entity.getComponent<Scrap::TagComponent>().tag = nameBuffer;
+
+        ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+        ImGui::Text("UUID %llu", static_cast<unsigned long long>(entity.getUUID()));
+        ImGui::PopStyleColor();
 
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
 
-        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
+        if (auto* t = entity.tryGetComponent<Scrap::TransformComponent>())
         {
-            Transform* t = go->transform;
+            if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                vec3Row("Position", t->translation, 0.0f, 78.0f);
 
-            glm::vec2 pos2 = t->getPosition();
-            glm::vec3 pos{pos2.x, pos2.y, 0.0f};
-            if (vec3Row("Position", pos, 0.0f, 78.0f))
-                t->setPosition({pos.x, pos.y});
+                // Degrees in the UI, radians in the component.
+                glm::vec3 degrees = glm::degrees(t->rotation);
+                if (vec3Row("Rotation", degrees, 0.0f, 78.0f)) t->rotation = glm::radians(degrees);
 
-            glm::vec3 rot{0.0f, 0.0f, t->getLocalRotation()};
-            if (vec3Row("Rotation", rot, 0.0f, 78.0f))
-                t->setRotation(rot.z);
+                vec3Row("Scale", t->scale, 1.0f, 78.0f);
+            }
+        }
 
-            glm::vec2 scale2 = t->getLocalScale();
-            glm::vec3 scale{scale2.x, scale2.y, 1.0f};
-            if (vec3Row("Scale", scale, 1.0f, 78.0f))
-                t->setScale({scale.x, scale.y});
+        if (auto* sprite = entity.tryGetComponent<Scrap::SpriteRendererComponent>())
+        {
+            bool open = ImGui::CollapsingHeader("Sprite Renderer", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginPopupContextItem("##spriteCtx"))
+            {
+                if (ImGui::MenuItem("Remove Component"))
+                    entity.removeComponent<Scrap::SpriteRendererComponent>();
+                ImGui::EndPopup();
+            }
+            if (open)
+            {
+                ImGui::ColorEdit4("Color", glm::value_ptr(sprite->color));
+                ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+                ImGui::TextWrapped("Texture: %s",
+                    sprite->texturePath.empty() ? "(none)" : sprite->texturePath.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
 
-            // Z is inert until D3 lands the vec3 TransformComponent; saying so beats
-            // letting someone drag it and wonder why nothing moves.
-            ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
-            ImGui::TextWrapped("Z is inactive - Transform is still 2D until the unified "
-                               "3D transform lands.");
-            ImGui::PopStyleColor();
+        if (auto* camera = entity.tryGetComponent<Scrap::CameraComponent>())
+        {
+            bool open = ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginPopupContextItem("##cameraCtx"))
+            {
+                if (ImGui::MenuItem("Remove Component"))
+                    entity.removeComponent<Scrap::CameraComponent>();
+                ImGui::EndPopup();
+            }
+            if (open)
+            {
+                int projection = camera->projection == Scrap::ProjectionKind::Perspective ? 1 : 0;
+                if (ImGui::Combo("Projection", &projection, "Orthographic\0Perspective\0"))
+                {
+                    camera->projection = projection == 1 ? Scrap::ProjectionKind::Perspective
+                                                         : Scrap::ProjectionKind::Orthographic;
+                }
+                if (camera->projection == Scrap::ProjectionKind::Orthographic)
+                    ImGui::DragFloat("Size", &camera->orthoSize, 0.1f, 0.1f, 1000.0f);
+                else
+                    ImGui::DragFloat("FOV", &camera->fovDegrees, 0.5f, 1.0f, 179.0f);
+                ImGui::Checkbox("Primary", &camera->primary);
+            }
+        }
+
+        if (auto* script = entity.tryGetComponent<Scrap::ScriptComponent>())
+        {
+            bool open = ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginPopupContextItem("##scriptCtx"))
+            {
+                if (ImGui::MenuItem("Remove Component"))
+                    entity.removeComponent<Scrap::ScriptComponent>();
+                ImGui::EndPopup();
+            }
+            if (open)
+            {
+                char typeBuffer[192];
+                std::snprintf(typeBuffer, sizeof(typeBuffer), "%s", script->typeName.c_str());
+                if (ImGui::InputText("Type", typeBuffer, sizeof(typeBuffer)))
+                    script->typeName = typeBuffer;
+                ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+                ImGui::TextWrapped("Managed type, e.g. Game.Player, GameScripts. "
+                                   "Bound when play mode starts.");
+                ImGui::PopStyleColor();
+            }
         }
 
         ImGui::Spacing();
-        sectionLabel("COMPONENTS");
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
-        ImGui::TextWrapped("Per-component inspectors arrive with the ECS: reflection over "
-                           "a component registry replaces hand-written panels.");
-        ImGui::PopStyleColor();
+        if (ImGui::Button("Add Component", ImVec2(-1.0f, 0.0f))) ImGui::OpenPopup("##addComponent");
+        if (ImGui::BeginPopup("##addComponent"))
+        {
+            if (!entity.hasComponent<Scrap::SpriteRendererComponent>() &&
+                ImGui::MenuItem("Sprite Renderer"))
+                entity.addComponent<Scrap::SpriteRendererComponent>();
+            if (!entity.hasComponent<Scrap::CameraComponent>() && ImGui::MenuItem("Camera"))
+                entity.addComponent<Scrap::CameraComponent>();
+            if (!entity.hasComponent<Scrap::ScriptComponent>() && ImGui::MenuItem("Script"))
+                entity.addComponent<Scrap::ScriptComponent>();
+            ImGui::EndPopup();
+        }
 
         ImGui::End();
     }
@@ -539,7 +624,11 @@ namespace Scrap::Editor
 
         ImGui::Spacing();
         sectionLabel("SCENE");
-        ImGui::Text("Objects     %zu", GameObjectCollection::all().size());
+        if (ctx.activeScene)
+        {
+            ImGui::Text("Entities    %zu", ctx.activeScene->entityCount());
+            ImGui::Text("Scene       %s", ctx.activeScene->getName().c_str());
+        }
 
         ImGui::End();
     }

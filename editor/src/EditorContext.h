@@ -2,11 +2,13 @@
 
 #include "EditorCamera.h"
 
+#include "scene/Entity.h"
+#include "scene/Scene.h"
+
 #include <glm/glm.hpp>
 #include <deque>
+#include <memory>
 #include <string>
-
-namespace ScrapGameEngine { class GameObject; }
 
 namespace Scrap::Editor
 {
@@ -47,11 +49,23 @@ namespace Scrap::Editor
     public:
         static EditorContext& get();
 
+        // --- scene -----------------------------------------------------------
+        // activeScene is what the editor draws and edits. On Play it points at a copy
+        // so Stop can restore editorScene untouched.
+        std::shared_ptr<Scrap::Scene> editorScene;
+        std::shared_ptr<Scrap::Scene> activeScene;
+        std::string scenePath;
+
         // --- selection -------------------------------------------------------
-        ScrapGameEngine::GameObject* selection = nullptr;
-        bool hasSelection() const { return selection != nullptr; }
-        void select(ScrapGameEngine::GameObject* go) { selection = go; }
-        void clearSelection() { selection = nullptr; }
+        Scrap::Entity selection;
+        bool hasSelection() const { return selection.isValid(); }
+        void select(Scrap::Entity e) { selection = e; }
+        void clearSelection() { selection = {}; }
+
+        /** @brief Enters play mode against a copy of the authored scene. */
+        void onPlay();
+        /** @brief Returns to the authored scene, discarding play-mode changes. */
+        void onStop();
 
         // --- viewport --------------------------------------------------------
         EditorCamera camera;

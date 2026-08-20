@@ -16,10 +16,9 @@
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
 #include "renderer/Renderer2D.h"
-#include "scene/GameObject.h"
-#include "scene/GameObjectCollection.h"
-#include "renderer/SpriteRenderer.h"
-#include "scene/Transform.h"
+#include "scene/Entity.h"
+#include "scene/Scene.h"
+#include "scene/SceneSerializer.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/DotNetHost.h"
@@ -33,6 +32,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <cmath>
 #include <iostream>
 
 using namespace ScrapGameEngine;
@@ -42,39 +42,106 @@ namespace
 {
     /**
      * Builds a small scene so the editor opens onto something rather than a void.
-     * Replaced by real scene loading once serialization exists.
+     * Used only when no scene file is present.
      */
-    void createStarterScene()
+    void createStarterScene(const std::shared_ptr<Scrap::Scene>& scene)
     {
-        auto& ctx = EditorContext::get();
-
-        struct Placement { const char* name; float x, y, scale; glm::vec3 color; };
+        struct Placement { const char* name; glm::vec3 pos; glm::vec3 scale; glm::vec4 color; };
         const Placement placements[] = {
-            {"Ground",     0.0f, -1.4f, 1.0f, {0.22f, 0.26f, 0.30f}},
-            {"Player",    -1.2f,  0.0f, 1.0f, {0.18f, 0.64f, 0.59f}},
-            {"Crate A",    0.6f,  0.2f, 1.0f, {0.55f, 0.42f, 0.28f}},
-            {"Crate B",    1.4f, -0.4f, 1.0f, {0.48f, 0.36f, 0.24f}},
-            {"Marker",     0.0f,  1.1f, 1.0f, {0.83f, 0.64f, 0.24f}},
+            {"Ground",  {0.0f, -1.4f, 0.0f}, {6.0f, 0.4f, 1.0f}, {0.22f, 0.26f, 0.30f, 1.0f}},
+            {"Player",  {-1.2f, 0.0f, 0.0f}, {0.7f, 0.7f, 1.0f}, {0.18f, 0.64f, 0.59f, 1.0f}},
+            {"Crate A", {0.6f,  0.2f, 0.0f}, {0.7f, 0.7f, 1.0f}, {0.55f, 0.42f, 0.28f, 1.0f}},
+            {"Crate B", {1.4f, -0.4f, 0.0f}, {0.7f, 0.7f, 1.0f}, {0.48f, 0.36f, 0.24f, 1.0f}},
+            {"Marker",  {0.0f,  1.1f, 0.0f}, {0.7f, 0.7f, 1.0f}, {0.83f, 0.64f, 0.24f, 1.0f}},
         };
 
         for (const auto& p : placements)
         {
-            GameObject* go = GameObject::Create(p.name);
-            go->transform->setPosition({p.x, p.y});
-            go->transform->setScale(p.name == std::string("Ground")
-                                        ? glm::vec2{6.0f, 0.4f}
-                                        : glm::vec2{0.7f, 0.7f});
-
-            auto* sprite = go->addComponent<SpriteRenderer>();
-            sprite->setColour(p.color);
+            Scrap::Entity e = scene->createEntity(p.name);
+            auto& t = e.getComponent<Scrap::TransformComponent>();
+            t.translation = p.pos;
+            t.scale = p.scale;
+            e.addComponent<Scrap::SpriteRendererComponent>().color = p.color;
         }
 
-        ctx.logInfo("Starter scene created with 5 objects.");
+        // A camera so play mode has something to render through.
+        Scrap::Entity camera = scene->createEntity("Main Camera");
+        camera.addComponent<Scrap::CameraComponent>();
     }
 }
 
-int main()
+/**
+ * Headless check of the scene round trip: build, save, reload, copy, and compare.
+ * Run as `ScrapEditor --selftest`. Cheap to run in CI later, and it exercises the
+ * serializer without needing anyone to click through the UI.
+ */
+static int runSelfTest()
 {
+    auto scene = std::make_shared<Scrap::Scene>();
+    scene->setName("SelfTest");
+    createStarterScene(scene);
+
+    const size_t originalCount = scene->entityCount();
+    Scrap::Entity player = scene->findByTag("Player");
+    if (!player) { std::cerr << "FAIL: Player not found\n"; return 1; }
+
+    const Scrap::UUID playerId = player.getUUID();
+    player.getComponent<Scrap::TransformComponent>().translation = {3.5f, -2.25f, 0.75f};
+
+    const std::string path = "selftest.scrapscene";
+    if (!Scrap::SceneSerializer(scene).serialize(path)) { std::cerr << "FAIL: serialize\n"; return 1; }
+
+    auto reloaded = std::make_shared<Scrap::Scene>();
+    if (!Scrap::SceneSerializer(reloaded).deserialize(path)) { std::cerr << "FAIL: deserialize\n"; return 1; }
+
+    if (reloaded->entityCount() != originalCount)
+    {
+        std::cerr << "FAIL: entity count " << reloaded->entityCount()
+                  << " != " << originalCount << "\n";
+        return 1;
+    }
+    if (reloaded->getName() != "SelfTest") { std::cerr << "FAIL: scene name lost\n"; return 1; }
+
+    Scrap::Entity restored = reloaded->findByUUID(playerId);
+    if (!restored) { std::cerr << "FAIL: UUID did not survive the round trip\n"; return 1; }
+
+    const glm::vec3 t = restored.getComponent<Scrap::TransformComponent>().translation;
+    if (std::abs(t.x - 3.5f) > 1e-4f || std::abs(t.y + 2.25f) > 1e-4f || std::abs(t.z - 0.75f) > 1e-4f)
+    {
+        std::cerr << "FAIL: translation " << t.x << "," << t.y << "," << t.z << "\n";
+        return 1;
+    }
+    if (!restored.hasComponent<Scrap::SpriteRendererComponent>())
+    {
+        std::cerr << "FAIL: SpriteRenderer lost\n"; return 1;
+    }
+    if (!reloaded->findByTag("Main Camera").hasComponent<Scrap::CameraComponent>())
+    {
+        std::cerr << "FAIL: Camera lost\n"; return 1;
+    }
+
+    // Copy-on-play must be a genuine deep copy: mutating the snapshot must not touch
+    // the original, which is what makes Stop a pointer swap rather than a reload.
+    auto snapshot = Scrap::Scene::copy(reloaded);
+    if (snapshot->entityCount() != originalCount) { std::cerr << "FAIL: copy count\n"; return 1; }
+    snapshot->findByUUID(playerId).getComponent<Scrap::TransformComponent>().translation = {99.0f, 99.0f, 99.0f};
+    if (reloaded->findByUUID(playerId).getComponent<Scrap::TransformComponent>().translation.x != 3.5f)
+    {
+        std::cerr << "FAIL: copy aliased the source scene\n"; return 1;
+    }
+
+    std::cout << "SELFTEST OK - " << originalCount
+              << " entities, UUIDs stable, transforms exact, copy is deep." << std::endl;
+    return 0;
+}
+
+int main(int argc, char** argv)
+{
+    for (int i = 1; i < argc; i++)
+    {
+        if (std::string(argv[i]) == "--selftest") return runSelfTest();
+    }
+
     AppWindowData windowData(1600, 900, "ScrapEditor");
     AppWindow window(windowData);
 
@@ -117,7 +184,23 @@ int main()
         if (fs::exists(candidate)) { Panels::setContentRoot(candidate); break; }
     }
 
-    createStarterScene();
+    ctx.editorScene = std::make_shared<Scrap::Scene>();
+    ctx.activeScene = ctx.editorScene;
+    ctx.scenePath = "assets/scenes/Sample.scrapscene";
+
+    {
+        Scrap::SceneSerializer loader(ctx.editorScene);
+        if (loader.deserialize(ctx.scenePath))
+        {
+            ctx.logInfo("Loaded scene: " + ctx.scenePath);
+        }
+        else
+        {
+            ctx.editorScene->setName("Sample");
+            createStarterScene(ctx.editorScene);
+            ctx.logInfo("No scene file found - created a starter scene.");
+        }
+    }
 
 #ifdef SCRAP_HAS_DOTNET
     // C# scripting. Signatures must match the [UnmanagedCallersOnly] declarations in
@@ -163,18 +246,18 @@ int main()
         glfwPollEvents();
         Input::process();
 
-        // Objects queued last frame get folded in, and play mode ticks the scene.
-        GameObjectCollection::update(ctx.isPlaying() ? deltaTime : 0.0f);
+        if (ctx.isPlaying()) ctx.activeScene->onUpdateRuntime(deltaTime);
         ctx.camera.update(deltaTime, ctx.viewportHovered);
 
 #ifdef SCRAP_HAS_DOTNET
         if (scriptTick && ctx.isPlaying()) scriptTick(deltaTime);
 #endif
 
-        // Scene pass into the offscreen target the viewport panel samples.
-        Renderer::beginFrameWith(ctx.camera.getViewProjection());
-        GameObjectCollection::render();
-        Renderer::endFrameOffscreen();
+        // Scene pass into the offscreen target the viewport panel samples. In play
+        // mode the scene renders through its own primary camera instead of the
+        // editor's - the whole point of CameraComponent.
+        if (ctx.isPlaying()) ctx.activeScene->onRenderRuntime();
+        else                 ctx.activeScene->onRenderEditor(ctx.camera.getViewProjection());
 
         int displayWidth = 0, displayHeight = 0;
         glfwGetFramebufferSize(nativeWindow, &displayWidth, &displayHeight);
@@ -190,9 +273,32 @@ int main()
         {
             if (ImGui::BeginMenu("File"))
             {
-                ImGui::MenuItem("New Scene", "Ctrl+N", false, false);
-                ImGui::MenuItem("Open Scene...", "Ctrl+O", false, false);
-                ImGui::MenuItem("Save Scene", "Ctrl+S", false, false);
+                if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+                {
+                    ctx.onStop();
+                    ctx.editorScene = std::make_shared<Scrap::Scene>();
+                    ctx.activeScene = ctx.editorScene;
+                    ctx.clearSelection();
+                    ctx.logInfo("New scene.");
+                }
+                if (ImGui::MenuItem("Reload Scene", "Ctrl+O"))
+                {
+                    ctx.onStop();
+                    Scrap::SceneSerializer loader(ctx.editorScene);
+                    ctx.logInfo(loader.deserialize(ctx.scenePath)
+                        ? "Reloaded " + ctx.scenePath
+                        : "Could not reload " + ctx.scenePath);
+                    ctx.clearSelection();
+                }
+                if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+                {
+                    std::filesystem::create_directories(
+                        std::filesystem::path(ctx.scenePath).parent_path());
+                    Scrap::SceneSerializer saver(ctx.editorScene);
+                    ctx.logInfo(saver.serialize(ctx.scenePath)
+                        ? "Saved " + ctx.scenePath
+                        : "Could not save " + ctx.scenePath);
+                }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) running = false;
                 ImGui::EndMenu();
@@ -230,6 +336,15 @@ int main()
             if (ImGui::IsKeyPressed(ImGuiKey_R)) ctx.gizmoOp = GizmoOp::Scale;
             if (ImGui::IsKeyPressed(ImGuiKey_Q)) ctx.gizmoOp = GizmoOp::None;
             if (ImGui::IsKeyPressed(ImGuiKey_F)) ctx.camera.reset();
+
+            if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+            {
+                std::filesystem::create_directories(
+                    std::filesystem::path(ctx.scenePath).parent_path());
+                Scrap::SceneSerializer saver(ctx.editorScene);
+                ctx.logInfo(saver.serialize(ctx.scenePath)
+                    ? "Saved " + ctx.scenePath : "Could not save " + ctx.scenePath);
+            }
         }
 
         ImGuiLayer::end(displayWidth, displayHeight);
@@ -246,7 +361,6 @@ int main()
 #endif
 
     ImGuiLayer::shutdown();
-    GameObjectCollection::dispose();
     Renderer::shutdown();
     return 0;
 }

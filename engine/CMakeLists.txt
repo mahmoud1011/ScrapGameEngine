@@ -1,6 +1,8 @@
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(freetype CONFIG REQUIRED)
+find_package(EnTT CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
 find_path(MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
 
 add_library(ScrapEngine STATIC
@@ -26,6 +28,8 @@ add_library(ScrapEngine STATIC
     src/scene/BaseScene.cpp
     src/scene/GameObject.cpp
     src/scene/GameObjectCollection.cpp
+    src/scene/Scene.cpp
+    src/scene/SceneSerializer.cpp
     src/scene/SceneStateMachine.cpp
     src/scene/Transform.cpp
     src/scene/TweenComponent.cpp
@@ -76,6 +80,8 @@ target_link_libraries(ScrapEngine
         glfw
         glm::glm
         glad
+        EnTT::EnTT
+        yaml-cpp::yaml-cpp
     PRIVATE
         freetype
         stb

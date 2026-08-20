@@ -14,6 +14,8 @@
       "name": "imgui",
       "features": ["docking-experimental", "glfw-binding", "opengl3-binding"]
     },
-    "imguizmo"
+    "imguizmo",
+    "entt",
+    "yaml-cpp"
   ]
 }

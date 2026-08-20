@@ -8,6 +8,22 @@ namespace Scrap::Editor
         return instance;
     }
 
+    void EditorContext::onPlay()
+    {
+        // Copy-on-play: the runtime mutates a snapshot, so Stop is a pointer swap
+        // rather than a reload, and edits made before Play survive.
+        activeScene = Scrap::Scene::copy(editorScene);
+        playState = PlayState::Playing;
+        clearSelection();
+    }
+
+    void EditorContext::onStop()
+    {
+        activeScene = editorScene;
+        playState = PlayState::Edit;
+        clearSelection();
+    }
+
     void EditorContext::log(LogEntry::Level level, std::string message)
     {
         entries.push_back({level, std::move(message)});

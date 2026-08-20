@@ -63,3 +63,6 @@ graphify-out/cache/
 # .NET build output
 scripting/**/bin/
 scripting/**/obj/
+
+# Editor self-test scratch output
+build/**/selftest.scrapscene

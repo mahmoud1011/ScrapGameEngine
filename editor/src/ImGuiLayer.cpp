@@ -24,7 +24,6 @@ namespace Scrap::Editor
         ImGui::CreateContext();
 
         ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
@@ -155,6 +154,9 @@ namespace Scrap::Editor
         ImGui::End();
     }
 
-    bool ImGuiLayer::wantsKeyboard() { return ImGui::GetIO().WantCaptureKeyboard; }
+    // WantTextInput, not WantCaptureKeyboard: the latter is true whenever any panel
+    // has focus, which blocked every editor shortcut. Only an active text field
+    // should swallow keys.
+    bool ImGuiLayer::wantsKeyboard() { return ImGui::GetIO().WantTextInput; }
     bool ImGuiLayer::wantsMouse()    { return ImGui::GetIO().WantCaptureMouse; }
 }
