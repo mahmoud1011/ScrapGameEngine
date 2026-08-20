@@ -6,6 +6,9 @@
 
 #include <glad/glad.h>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <cmath>
 
 #include <array>
 #include <iostream>
@@ -31,6 +34,17 @@ namespace
 
         glm::mat4 viewProjection{1.0f};
         glm::vec3 cameraPosition{0.0f};
+
+        Shader skyShader;
+        VertexArray skyVao;          ///< Empty VAO; the sky is a shader-generated triangle.
+
+        Shader depthShader;
+        unsigned int shadowFbo = 0;
+        unsigned int shadowMap = 0;
+        glm::mat4 lightSpace{1.0f};
+        bool shadowsEnabled = true;
+        bool shadowPassActive = false;
+        SkySettings sky;
 
         bool initialized = false;
         bool sceneActive = false;
@@ -91,6 +105,10 @@ uniform vec3  u_SunDirection;
 uniform vec3  u_SunColor;
 uniform float u_SunIntensity;
 
+uniform mat4  u_LightSpace;
+uniform sampler2D u_ShadowMap;
+uniform bool  u_ShadowsEnabled;
+
 uniform int   u_PointLightCount;
 uniform vec3  u_PointPos[MAX_POINT_LIGHTS];
 uniform vec3  u_PointColor[MAX_POINT_LIGHTS];
@@ -143,14 +161,49 @@ vec3 shade(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, f
     return (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0.0);
 }
 
+/**
+ * Percentage-closer filtering over a 3x3 kernel, so the shadow edge is soft rather
+ * than a single hard step at texel boundaries.
+ */
+float shadowFactor(vec3 worldPos, vec3 N, vec3 L)
+{
+    if (!u_ShadowsEnabled) return 1.0;
+
+    vec4 lightClip = u_LightSpace * vec4(worldPos, 1.0);
+    vec3 proj = lightClip.xyz / lightClip.w * 0.5 + 0.5;
+
+    // Outside the shadow map, treat as lit rather than shadowed - the alternative is
+    // the whole world outside the cascade going black.
+    if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+        return 1.0;
+
+    // Slope-scaled bias: a surface at a grazing angle to the light needs more, or it
+    // shadow-acnes itself.
+    float bias = max(0.0015 * (1.0 - dot(N, L)), 0.0004);
+
+    float lit = 0.0;
+    vec2 texel = 1.0 / vec2(textureSize(u_ShadowMap, 0));
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            float depth = texture(u_ShadowMap, proj.xy + vec2(x, y) * texel).r;
+            lit += (proj.z - bias) > depth ? 0.0 : 1.0;
+        }
+    }
+    return lit / 9.0;
+}
+
 void main()
 {
     vec3 albedo = u_Albedo.rgb;
     vec3 N = normalize(v_Normal);
     vec3 V = normalize(u_CameraPos - v_WorldPos);
 
-    vec3 color = shade(N, V, normalize(-u_SunDirection),
-                       u_SunColor * u_SunIntensity, albedo, u_Metallic, u_Roughness);
+    vec3 sunDir = normalize(-u_SunDirection);
+    vec3 color = shade(N, V, sunDir, u_SunColor * u_SunIntensity,
+                       albedo, u_Metallic, u_Roughness)
+               * shadowFactor(v_WorldPos, N, sunDir);
 
     for (int i = 0; i < u_PointLightCount && i < MAX_POINT_LIGHTS; i++)
     {
@@ -176,6 +229,74 @@ void main()
     o_Color = vec4(color, u_Albedo.a);
     o_EntityId = u_EntityId;
 }
+)";
+
+    constexpr int kShadowMapSize = 2048;
+
+    // A fullscreen triangle generated from gl_VertexID - no vertex buffer needed, and
+    // one triangle rather than two avoids the diagonal seam a quad produces.
+    const char* kSkyVertex = R"(#version 330 core
+out vec2 v_Ndc;
+void main()
+{
+    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
+    v_Ndc = p;
+    gl_Position = vec4(p, 1.0, 1.0);
+}
+)";
+
+    const char* kSkyFragment = R"(#version 330 core
+layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int o_EntityId;
+
+in vec2 v_Ndc;
+
+uniform mat4 u_InverseViewProjection;
+uniform vec3 u_CameraPos;
+uniform vec3 u_Zenith;
+uniform vec3 u_Horizon;
+uniform vec3 u_Ground;
+uniform vec3 u_SunDirection;
+uniform vec3 u_SunColor;
+uniform float u_SunSize;
+uniform float u_SunIntensity;
+
+void main()
+{
+    // Unproject the pixel to a world ray, so the gradient follows the real horizon
+    // rather than screen space.
+    vec4 far = u_InverseViewProjection * vec4(v_Ndc, 1.0, 1.0);
+    vec3 dir = normalize(far.xyz / far.w - u_CameraPos);
+
+    float h = dir.y;
+    vec3 color = h > 0.0
+        ? mix(u_Horizon, u_Zenith, pow(clamp(h, 0.0, 1.0), 0.55))
+        : mix(u_Horizon, u_Ground, pow(clamp(-h, 0.0, 1.0), 0.35));
+
+    // A soft sun disc in the light's direction.
+    float sun = max(dot(dir, normalize(-u_SunDirection)), 0.0);
+    color += u_SunColor * u_SunIntensity * pow(sun, 1.0 / max(u_SunSize, 1e-3));
+
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
+
+    o_Color = vec4(color, 1.0);
+    o_EntityId = -1;
+}
+)";
+
+    const char* kDepthVertex = R"(#version 330 core
+layout(location = 0) in vec3 a_Position;
+uniform mat4 u_LightSpace;
+uniform mat4 u_Model;
+void main()
+{
+    gl_Position = u_LightSpace * u_Model * vec4(a_Position, 1.0);
+}
+)";
+
+    const char* kDepthFragment = R"(#version 330 core
+void main() { }
 )";
 
     const char* kGridVertex = R"(#version 330 core
@@ -242,15 +363,147 @@ bool Renderer3D::init()
     s.gridVao.addVertexBuffer(s.gridVbo);
     s.gridVertexCount = static_cast<unsigned int>(lines.size());
 
+    if (!s.skyShader.compile(kSkyVertex, kSkyFragment))
+    {
+        std::cerr << "[RENDERER3D] sky shader failed to build." << std::endl;
+        return false;
+    }
+    s.skyVao.create();   // core profile forbids drawing with no VAO bound
+
+    if (!s.depthShader.compile(kDepthVertex, kDepthFragment))
+    {
+        std::cerr << "[RENDERER3D] depth shader failed to build." << std::endl;
+        return false;
+    }
+
+    // Depth-only target for the sun's view. Border colour 1.0 with CLAMP_TO_BORDER so
+    // anything sampled outside the map reads as fully lit rather than shadowed.
+    glGenTextures(1, &s.shadowMap);
+    glBindTexture(GL_TEXTURE_2D, s.shadowMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, kShadowMapSize, kShadowMapSize,
+                 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    const float border[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+
+    glGenFramebuffers(1, &s.shadowFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, s.shadowFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s.shadowMap, 0);
+    glDrawBuffer(GL_NONE);   // depth only
+    glReadBuffer(GL_NONE);
+    const GLenum shadowStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    if (shadowStatus != GL_FRAMEBUFFER_COMPLETE)
+    {
+        std::cerr << "[RENDERER3D] shadow map incomplete - shadows disabled." << std::endl;
+        s.shadowsEnabled = false;
+    }
+
     s.initialized = true;
-    std::cout << "[RENDERER3D] ready - forward PBR, "
-              << kMaxPointLights << " point lights." << std::endl;
+    std::cout << "[RENDERER3D] ready - forward PBR, " << kMaxPointLights
+              << " point lights, " << kShadowMapSize << "^2 shadow map." << std::endl;
     return true;
 }
 
 void Renderer3D::shutdown()
 {
+    if (s.shadowMap != 0) glDeleteTextures(1, &s.shadowMap);
+    if (s.shadowFbo != 0) glDeleteFramebuffers(1, &s.shadowFbo);
+    s.shadowMap = s.shadowFbo = 0;
     s.initialized = false;
+}
+
+void Renderer3D::setSky(const SkySettings& sky) { s.sky = sky; }
+const SkySettings& Renderer3D::getSky() { return s.sky; }
+void Renderer3D::setShadowsEnabled(bool enabled) { s.shadowsEnabled = enabled; }
+bool Renderer3D::areShadowsEnabled() { return s.shadowsEnabled; }
+
+void Renderer3D::drawSky(const glm::mat4& viewProjection)
+{
+    if (!s.initialized || !s.sky.enabled) return;
+
+    // No depth write and no depth test: the sky is a backdrop, and everything drawn
+    // afterwards simply covers it.
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+
+    s.skyShader.bind();
+    s.skyShader.setMat4("u_InverseViewProjection", glm::inverse(viewProjection));
+    s.skyShader.setVec3("u_CameraPos", s.cameraPosition);
+    s.skyShader.setVec3("u_Zenith", s.sky.zenith);
+    s.skyShader.setVec3("u_Horizon", s.sky.horizon);
+    s.skyShader.setVec3("u_Ground", s.sky.ground);
+    s.skyShader.setVec3("u_SunDirection", s.sun.direction);
+    s.skyShader.setVec3("u_SunColor", s.sun.color);
+    s.skyShader.setFloat("u_SunSize", s.sky.sunSize);
+    s.skyShader.setFloat("u_SunIntensity", s.sky.sunIntensity);
+
+    s.skyVao.bind();
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    VertexArray::unbind();
+
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    s.stats.drawCalls++;
+}
+
+bool Renderer3D::beginShadowPass(const glm::vec3& sceneCenter, float sceneRadius)
+{
+    if (!s.initialized || !s.shadowsEnabled || !s.sun.castsShadows) return false;
+
+    // An orthographic volume fitted around the scene bounds, looking down the sun's
+    // direction. One cascade: correct for a scene of this size, and section 7 names
+    // cascaded maps as the step past it.
+    const float radius = sceneRadius > 0.5f ? sceneRadius : 0.5f;
+    const glm::vec3 dir = glm::normalize(s.sun.direction);
+    const glm::vec3 eye = sceneCenter - dir * (radius * 2.0f);
+
+    // Any up vector works except one parallel to the light.
+    const glm::vec3 up = std::abs(dir.y) > 0.99f ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
+
+    const glm::mat4 view = glm::lookAt(eye, sceneCenter, up);
+    const glm::mat4 projection = glm::ortho(-radius, radius, -radius, radius,
+                                            0.1f, radius * 4.0f);
+    s.lightSpace = projection * view;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, s.shadowFbo);
+    glViewport(0, 0, kShadowMapSize, kShadowMapSize);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    // Front-face culling during the depth pass pushes acne to surfaces the camera
+    // cannot see, which removes most of it without a heavier bias.
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT);
+
+    s.depthShader.bind();
+    s.depthShader.setMat4("u_LightSpace", s.lightSpace);
+    s.shadowPassActive = true;
+    return true;
+}
+
+void Renderer3D::drawMeshShadow(const std::shared_ptr<Mesh3D>& mesh, const glm::mat4& transform)
+{
+    if (!s.shadowPassActive || !mesh || !mesh->isValid()) return;
+
+    s.depthShader.setMat4("u_Model", transform);
+    mesh->bind();
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->getIndexCount()),
+                   GL_UNSIGNED_INT, nullptr);
+    VertexArray::unbind();
+    s.stats.drawCalls++;
+}
+
+void Renderer3D::endShadowPass()
+{
+    if (!s.shadowPassActive) return;
+    glCullFace(GL_BACK);
+    glDisable(GL_CULL_FACE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    s.shadowPassActive = false;
 }
 
 unsigned int Renderer3D::maxPointLights() { return kMaxPointLights; }
@@ -302,6 +555,15 @@ void Renderer3D::beginScene(const glm::mat4& viewProjection, const glm::vec3& ca
     s.shader.setVec3("u_SunColor", s.sun.color);
     s.shader.setFloat("u_SunIntensity", s.sun.intensity);
     s.shader.setInt("u_PointLightCount", static_cast<int>(s.pointLightCount));
+
+    const bool shadows = s.shadowsEnabled && s.sun.castsShadows;
+    s.shader.setInt("u_ShadowsEnabled", shadows ? 1 : 0);
+    s.shader.setMat4("u_LightSpace", s.lightSpace);
+    // Slot 8, above the 2D batcher's texture slots so the two never collide.
+    s.shader.setInt("u_ShadowMap", 8);
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, s.shadowMap);
+    glActiveTexture(GL_TEXTURE0);
 
     for (unsigned int i = 0; i < s.pointLightCount; i++)
     {

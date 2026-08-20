@@ -7,6 +7,8 @@
 #include "rhi/Framebuffer.h"
 #include "scene/Entity.h"
 #include "scene/Scene.h"
+#include "scene/SceneSerializer.h"
+#include "assets/GltfImporter.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/ScriptEngine.h"
@@ -195,6 +197,20 @@ namespace Scrap::Editor
         {
             ctx.cullingEnabled = !ctx.cullingEnabled;
             Renderer3D::setCullingEnabled(ctx.cullingEnabled);
+        }
+        ImGui::SameLine();
+        if (toolToggle("Shadow", ctx.shadowsEnabled, "Directional shadow mapping"))
+        {
+            ctx.shadowsEnabled = !ctx.shadowsEnabled;
+            Renderer3D::setShadowsEnabled(ctx.shadowsEnabled);
+        }
+        ImGui::SameLine();
+        if (toolToggle("Sky", ctx.skyEnabled, "Procedural sky"))
+        {
+            ctx.skyEnabled = !ctx.skyEnabled;
+            auto sky = Renderer3D::getSky();
+            sky.enabled = ctx.skyEnabled;
+            Renderer3D::setSky(sky);
         }
         ImGui::SameLine();
         if (toolToggle(ctx.camera.isPerspective() ? "3D" : "2D", ctx.camera.isPerspective(),
@@ -394,6 +410,15 @@ namespace Scrap::Editor
                     if (ctx.selection == entity) ctx.clearSelection();
                     scene->destroyEntity(entity);
                 }
+                if (ImGui::MenuItem("Save as Prefab"))
+                {
+                    std::filesystem::create_directories("assets/prefabs");
+                    const std::string path =
+                        "assets/prefabs/" + entity.getName() + ".scrapprefab";
+                    ctx.log(Scrap::SceneSerializer::savePrefab(entity, path)
+                                ? LogEntry::Level::Info : LogEntry::Level::Error,
+                            "Prefab: " + path);
+                }
                 ImGui::EndPopup();
             }
             ImGui::PopID();
@@ -418,6 +443,28 @@ namespace Scrap::Editor
                 ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
         {
             if (ImGui::MenuItem("Create Empty")) ctx.select(scene->createEntity("Entity"));
+            if (ImGui::BeginMenu("Prefab"))
+            {
+                namespace fs = std::filesystem;
+                bool any = false;
+                std::error_code ec;
+                if (fs::exists("assets/prefabs", ec))
+                {
+                    for (const auto& file : fs::directory_iterator("assets/prefabs", ec))
+                    {
+                        if (file.path().extension() != ".scrapprefab") continue;
+                        any = true;
+                        if (ImGui::MenuItem(file.path().stem().string().c_str()))
+                        {
+                            Entity e = Scrap::SceneSerializer::instantiatePrefab(
+                                *scene, file.path().string());
+                            if (e) ctx.select(e);
+                        }
+                    }
+                }
+                if (!any) ImGui::TextColored(P::InkFaint, "No prefabs yet");
+                ImGui::EndMenu();
+            }
             if (ImGui::MenuItem("Create Sprite"))
             {
                 Entity e = scene->createEntity("Sprite");
@@ -710,10 +757,59 @@ namespace Scrap::Editor
             ImGui::PushID(filename.c_str());
             ImGui::PushStyleColor(ImGuiCol_Button, P::Surface);
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, P::Raised);
-            ImGui::PushStyleColor(ImGuiCol_Text, isDir ? P::Accent : P::InkMuted);
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                isDir ? P::Accent
+                      : (GltfImporter::isSupported(entry.path().string()) ? P::Warning
+                                                                          : P::InkMuted));
 
-            if (ImGui::Button(isDir ? "[DIR]" : "[FILE]", ImVec2(tile, tile)) && isDir)
-                contentCurrent = entry.path();
+            const bool isModel = !isDir && GltfImporter::isSupported(entry.path().string());
+            const char* glyph = isDir ? "[DIR]" : isModel ? "[MESH]" : "[FILE]";
+
+            if (ImGui::Button(glyph, ImVec2(tile, tile)))
+            {
+                if (isDir) contentCurrent = entry.path();
+                else if (isModel)
+                {
+                    auto& ctx = EditorContext::get();
+                    auto primitives = GltfImporter::load(entry.path().string());
+                    if (primitives.empty())
+                    {
+                        ctx.logError("Import failed: " + filename);
+                    }
+                    else
+                    {
+                        // One entity per primitive, since each carries its own material
+                        // and its own node transform.
+                        for (auto& primitive : primitives)
+                        {
+                            auto mesh = primitive.upload();
+                            if (!mesh) continue;
+
+                            Entity e = ctx.activeScene->createEntity(primitive.name);
+                            auto& mr = e.addComponent<Scrap::MeshRendererComponent>();
+                            mr.primitive = Scrap::PrimitiveKind::Custom;
+                            mr.mesh = mesh;
+                            mr.meshPath = entry.path().string();
+                            mr.albedo = primitive.albedo;
+                            mr.metallic = primitive.metallic;
+                            mr.roughness = primitive.roughness;
+                            mr.emissive = primitive.emissive;
+
+                            // Decompose the baked node transform into the component.
+                            auto& t = e.getComponent<Scrap::TransformComponent>();
+                            t.translation = glm::vec3(primitive.transform[3]);
+                            t.scale = {glm::length(glm::vec3(primitive.transform[0])),
+                                       glm::length(glm::vec3(primitive.transform[1])),
+                                       glm::length(glm::vec3(primitive.transform[2]))};
+                            ctx.select(e);
+                        }
+                        ctx.logInfo("Imported " + std::to_string(primitives.size()) +
+                                    " primitive(s) from " + filename);
+                    }
+                }
+            }
+            if (isModel && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Click to import into the scene");
 
             ImGui::PopStyleColor(3);
             ImGui::TextWrapped("%s", filename.c_str());

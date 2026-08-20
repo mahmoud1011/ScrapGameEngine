@@ -3,6 +3,7 @@
 
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
+#include "assets/GltfImporter.h"
 #include "renderer/Mesh3D.h"
 #include "renderer/Renderer2D.h"
 #include "renderer/Renderer3D.h"
@@ -128,6 +129,52 @@ namespace Scrap
         if (!haveSun) Renderer3D::setDirectionalLight({});
     }
 
+    void Scene::meshBounds(glm::vec3& center, float& radius) const
+    {
+        center = glm::vec3(0.0f);
+        radius = 1.0f;
+
+        auto view = registry.view<const TransformComponent, const MeshRendererComponent>();
+        int count = 0;
+        glm::vec3 minB(1e9f), maxB(-1e9f);
+
+        for (auto handle : view)
+        {
+            const auto& t = registry.get<const TransformComponent>(handle);
+            const float extent = 0.87f * glm::max(glm::max(t.scale.x, t.scale.y), t.scale.z);
+            minB = glm::min(minB, t.translation - extent);
+            maxB = glm::max(maxB, t.translation + extent);
+            count++;
+        }
+
+        if (count == 0) return;
+        center = (minB + maxB) * 0.5f;
+        radius = glm::length(maxB - center);
+        if (radius < 0.5f) radius = 0.5f;
+    }
+
+    void Scene::renderShadowPass()
+    {
+        using namespace ScrapGameEngine;
+
+        glm::vec3 center; float radius;
+        meshBounds(center, radius);
+
+        // Returns false when shadows are off, so the second traversal is skipped
+        // entirely rather than being done and thrown away.
+        if (!Renderer3D::beginShadowPass(center, radius)) return;
+
+        for (auto handle : registry.view<TransformComponent, MeshRendererComponent>())
+        {
+            auto& mesh = registry.get<MeshRendererComponent>(handle);
+            if (!mesh.mesh) continue;   // built lazily by the main pass
+            Renderer3D::drawMeshShadow(
+                mesh.mesh, registry.get<TransformComponent>(handle).matrix());
+        }
+
+        Renderer3D::endShadowPass();
+    }
+
     void Scene::renderMeshes(const glm::mat4& viewProjection, const glm::vec3& cameraPosition)
     {
         using namespace ScrapGameEngine;
@@ -147,10 +194,24 @@ namespace Scrap
             {
                 switch (mesh.primitive)
                 {
+                    case PrimitiveKind::Custom:
+                        // An imported mesh is attached directly; reaching here means
+                        // the path could not be resolved, so fall back to a cube
+                        // rather than drawing nothing and looking like a bug.
+                        if (!mesh.meshPath.empty())
+                        {
+                            auto primitives = ScrapGameEngine::GltfImporter::load(mesh.meshPath);
+                            if (!primitives.empty())
+                            {
+                                mesh.mesh = primitives.front().upload();
+                                if (mesh.mesh) break;
+                            }
+                        }
+                        mesh.mesh = Mesh3D::createCube();
+                        break;
                     case PrimitiveKind::Sphere: mesh.mesh = Mesh3D::createSphere(); break;
                     case PrimitiveKind::Plane:  mesh.mesh = Mesh3D::createPlane(4.0f); break;
-                    case PrimitiveKind::Cube:
-                    case PrimitiveKind::Custom: mesh.mesh = Mesh3D::createCube(); break;
+                    case PrimitiveKind::Cube: mesh.mesh = Mesh3D::createCube(); break;
                 }
             }
 
@@ -203,7 +264,13 @@ namespace Scrap
                              const glm::mat4& viewProjection,
                              const glm::vec3& cameraPosition, bool drawGrid)
     {
+        // Shadows first: the pass binds its own target and viewport, so it has to
+        // complete before the scene target is bound.
+        submitLights();
+        renderShadowPass();
+
         ScrapGameEngine::Renderer::beginFrameInto(target, viewProjection);
+        ScrapGameEngine::Renderer3D::drawSky(viewProjection);
         renderMeshes(viewProjection, cameraPosition);
         if (drawGrid) ScrapGameEngine::Renderer3D::drawGrid(viewProjection);
         renderSprites();
@@ -264,6 +331,9 @@ namespace Scrap
 
         const glm::vec3 cameraPosition =
             glm::vec3(glm::inverse(viewProjection)[3]);
+
+        submitLights();
+        renderShadowPass();
 
         ScrapGameEngine::Renderer::beginFrameWith(viewProjection);
         renderMeshes(viewProjection, cameraPosition);

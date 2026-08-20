@@ -92,6 +92,8 @@ namespace Scrap::Editor
         bool showGrid = true;
         bool snapEnabled = false;
         bool cullingEnabled = true;
+        bool shadowsEnabled = true;
+        bool skyEnabled = true;
         float translateSnap = 0.25f;
         float rotateSnap = 15.0f;
         float scaleSnap = 0.1f;

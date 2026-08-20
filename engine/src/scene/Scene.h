@@ -91,6 +91,9 @@ namespace Scrap
 
         void renderSprites();
         void renderMeshes(const glm::mat4& viewProjection, const glm::vec3& cameraPosition);
+        void renderShadowPass();
+        /** @brief A bounding sphere over every mesh, for fitting the shadow volume. */
+        void meshBounds(glm::vec3& center, float& radius) const;
         void submitLights();
 
         entt::registry registry;

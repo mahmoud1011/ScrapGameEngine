@@ -3,9 +3,12 @@ find_package(glm CONFIG REQUIRED)
 find_package(freetype CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
+find_path(CGLTF_INCLUDE_DIR cgltf.h REQUIRED)
 find_path(MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
 
 add_library(ScrapEngine STATIC
+    src/assets/GltfImporter.cpp
+
     src/core/Application.cpp
     src/core/Scheduler.cpp
     src/core/Time.cpp
@@ -77,7 +80,9 @@ target_include_directories(ScrapEngine
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
-target_include_directories(ScrapEngine SYSTEM PRIVATE "${MINIAUDIO_INCLUDE_DIR}")
+target_include_directories(ScrapEngine SYSTEM PRIVATE
+    "${MINIAUDIO_INCLUDE_DIR}"
+    "${CGLTF_INCLUDE_DIR}")
 
 target_link_libraries(ScrapEngine
     PUBLIC

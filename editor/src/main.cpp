@@ -16,10 +16,12 @@
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
 #include "renderer/Renderer2D.h"
+#include "renderer/Mesh3D.h"
 #include "renderer/Renderer3D.h"
 #include "scene/Entity.h"
 #include "scene/Scene.h"
 #include "scene/SceneSerializer.h"
+#include "assets/GltfImporter.h"
 #include "rhi/Framebuffer.h"
 
 #ifdef SCRAP_HAS_DOTNET
@@ -180,6 +182,94 @@ static int runSelfTest()
     {
         std::cerr << "FAIL: copy aliased the source scene\n"; return 1;
     }
+
+    // --- prefabs -----------------------------------------------------------
+    Scrap::Entity source = reloaded->findByTag("Brass Sphere");
+    if (!source) { std::cerr << "FAIL: prefab source missing\n"; return 1; }
+    source.getComponent<Scrap::TransformComponent>().translation = {7.0f, 1.5f, -2.0f};
+
+    const std::string prefabPath = "selftest.scrapprefab";
+    if (!Scrap::SceneSerializer::savePrefab(source, prefabPath))
+    {
+        std::cerr << "FAIL: savePrefab\n"; return 1;
+    }
+
+    Scrap::Entity instanceA = Scrap::SceneSerializer::instantiatePrefab(*reloaded, prefabPath);
+    Scrap::Entity instanceB = Scrap::SceneSerializer::instantiatePrefab(*reloaded, prefabPath);
+    if (!instanceA || !instanceB) { std::cerr << "FAIL: instantiatePrefab\n"; return 1; }
+
+    // Two instances must be distinct entities with distinct ids, or the second would
+    // displace the first in the scene's UUID table.
+    if (instanceA == instanceB || instanceA.getUUID() == instanceB.getUUID())
+    {
+        std::cerr << "FAIL: prefab instances share identity\n"; return 1;
+    }
+    if (instanceA.getUUID() == source.getUUID())
+    {
+        std::cerr << "FAIL: instance reused the source UUID\n"; return 1;
+    }
+
+    const glm::vec3 instancePos = instanceA.getComponent<Scrap::TransformComponent>().translation;
+    if (std::abs(instancePos.x - 7.0f) > 1e-4f || std::abs(instancePos.z + 2.0f) > 1e-4f)
+    {
+        std::cerr << "FAIL: prefab transform not restored\n"; return 1;
+    }
+    if (!instanceA.hasComponent<Scrap::MeshRendererComponent>())
+    {
+        std::cerr << "FAIL: prefab lost MeshRenderer\n"; return 1;
+    }
+    if (std::abs(instanceA.getComponent<Scrap::MeshRendererComponent>().metallic - 1.0f) > 1e-4f)
+    {
+        std::cerr << "FAIL: prefab lost material\n"; return 1;
+    }
+
+    // --- glTF import -------------------------------------------------------
+    for (const auto& candidate : {std::string("../assets/models/Triangle.gltf"),
+                                  std::string("assets/models/Triangle.gltf")})
+    {
+        if (!std::filesystem::exists(candidate)) continue;
+
+        auto primitives = GltfImporter::load(candidate);
+        if (primitives.empty()) { std::cerr << "FAIL: gltf produced no primitives\n"; return 1; }
+
+        const auto& first = primitives.front();
+        // CPU-side only: this test runs without a GL context, which is precisely why
+        // parsing and upload are separate.
+        if (first.vertices.size() != 3)
+        {
+            std::cerr << "FAIL: gltf vertex count " << first.vertices.size() << "\n"; return 1;
+        }
+        if (first.indices.size() != 3)
+        {
+            std::cerr << "FAIL: gltf index count " << first.indices.size() << "\n"; return 1;
+        }
+        if (std::abs(first.vertices[1].position.x - 1.0f) > 1e-4f)
+        {
+            std::cerr << "FAIL: gltf positions wrong\n"; return 1;
+        }
+        if (std::abs(first.vertices[0].normal.z - 1.0f) > 1e-4f)
+        {
+            std::cerr << "FAIL: gltf normals wrong\n"; return 1;
+        }
+        // The node's translation must survive as the primitive's transform.
+        if (std::abs(first.transform[3].x - 2.0f) > 1e-4f)
+        {
+            std::cerr << "FAIL: gltf node transform lost\n"; return 1;
+        }
+        if (std::abs(first.metallic - 0.25f) > 1e-4f ||
+            std::abs(first.albedo.r - 0.9f) > 1e-4f)
+        {
+            std::cerr << "FAIL: gltf material not read\n"; return 1;
+        }
+
+        std::cout << "GLTF OK - " << primitives.size() << " primitive, "
+                  << first.triangleCount() << " triangle, positions/normals/material/"
+                  << "node transform all read" << std::endl;
+        break;
+    }
+
+    std::cout << "PREFAB OK - two instances, distinct UUIDs, material and transform intact"
+              << std::endl;
 
     std::cout << "SELFTEST OK - " << originalCount
               << " entities, UUIDs stable, transforms exact, copy is deep." << std::endl;

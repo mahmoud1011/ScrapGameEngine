@@ -58,6 +58,71 @@ namespace Scrap
             return out;
         }
 
+        /**
+         * Applies one YAML entity node to an existing entity. Shared by scene load and
+         * prefab instantiation, so the two formats cannot drift apart.
+         */
+        void applyComponents(const YAML::Node& node, Entity entity)
+        {
+            if (const auto t = node["Transform"])
+            {
+                auto& transform = entity.getComponent<TransformComponent>();
+                transform.translation = t["Translation"].as<glm::vec3>();
+                transform.rotation = t["Rotation"].as<glm::vec3>();
+                transform.scale = t["Scale"].as<glm::vec3>();
+            }
+
+            if (const auto sr = node["SpriteRenderer"])
+            {
+                auto& sprite = entity.addOrReplaceComponent<SpriteRendererComponent>();
+                sprite.color = sr["Color"].as<glm::vec4>();
+                if (sr["Texture"]) sprite.texturePath = sr["Texture"].as<std::string>();
+            }
+
+            if (const auto c = node["Camera"])
+            {
+                auto& camera = entity.addOrReplaceComponent<CameraComponent>();
+                camera.projection = c["Projection"].as<std::string>() == "Perspective"
+                                        ? ProjectionKind::Perspective
+                                        : ProjectionKind::Orthographic;
+                camera.orthoSize = c["OrthoSize"].as<float>();
+                camera.fovDegrees = c["Fov"].as<float>();
+                camera.nearClip = c["Near"].as<float>();
+                camera.farClip = c["Far"].as<float>();
+                camera.primary = c["Primary"].as<bool>();
+            }
+
+            if (const auto m = node["MeshRenderer"])
+            {
+                auto& mesh = entity.addOrReplaceComponent<MeshRendererComponent>();
+                const auto kind = m["Primitive"].as<std::string>();
+                mesh.primitive = kind == "Sphere" ? PrimitiveKind::Sphere :
+                                 kind == "Plane"  ? PrimitiveKind::Plane  :
+                                 kind == "Custom" ? PrimitiveKind::Custom : PrimitiveKind::Cube;
+                if (m["Mesh"]) mesh.meshPath = m["Mesh"].as<std::string>();
+                mesh.albedo = m["Albedo"].as<glm::vec4>();
+                mesh.metallic = m["Metallic"].as<float>();
+                mesh.roughness = m["Roughness"].as<float>();
+                mesh.emissive = m["Emissive"].as<float>();
+            }
+
+            if (const auto l = node["Light"])
+            {
+                auto& light = entity.addOrReplaceComponent<LightComponent>();
+                light.kind = l["Kind"].as<std::string>() == "Directional"
+                                 ? LightKind::Directional : LightKind::Point;
+                light.color = l["Color"].as<glm::vec3>();
+                light.intensity = l["Intensity"].as<float>();
+                light.range = l["Range"].as<float>();
+            }
+
+            if (const auto script = node["Script"])
+            {
+                entity.addOrReplaceComponent<ScriptComponent>().typeName =
+                    script["Type"].as<std::string>();
+            }
+        }
+
         void serializeEntity(YAML::Emitter& out, Entity entity)
         {
             out << YAML::BeginMap;
@@ -197,65 +262,62 @@ namespace Scrap
             const std::string tag = node["Tag"] ? node["Tag"].as<std::string>() : "Entity";
 
             Entity entity = scene->createEntityWithUUID(UUID(uuid), tag);
-
-            if (const auto t = node["Transform"])
-            {
-                auto& transform = entity.getComponent<TransformComponent>();
-                transform.translation = t["Translation"].as<glm::vec3>();
-                transform.rotation = t["Rotation"].as<glm::vec3>();
-                transform.scale = t["Scale"].as<glm::vec3>();
-            }
-
-            if (const auto s = node["SpriteRenderer"])
-            {
-                auto& sprite = entity.addComponent<SpriteRendererComponent>();
-                sprite.color = s["Color"].as<glm::vec4>();
-                if (s["Texture"]) sprite.texturePath = s["Texture"].as<std::string>();
-            }
-
-            if (const auto c = node["Camera"])
-            {
-                auto& camera = entity.addComponent<CameraComponent>();
-                camera.projection = c["Projection"].as<std::string>() == "Perspective"
-                                        ? ProjectionKind::Perspective
-                                        : ProjectionKind::Orthographic;
-                camera.orthoSize = c["OrthoSize"].as<float>();
-                camera.fovDegrees = c["Fov"].as<float>();
-                camera.nearClip = c["Near"].as<float>();
-                camera.farClip = c["Far"].as<float>();
-                camera.primary = c["Primary"].as<bool>();
-            }
-
-            if (const auto m = node["MeshRenderer"])
-            {
-                auto& mesh = entity.addComponent<MeshRendererComponent>();
-                const auto kind = m["Primitive"].as<std::string>();
-                mesh.primitive = kind == "Sphere" ? PrimitiveKind::Sphere :
-                                 kind == "Plane"  ? PrimitiveKind::Plane  :
-                                 kind == "Custom" ? PrimitiveKind::Custom : PrimitiveKind::Cube;
-                if (m["Mesh"]) mesh.meshPath = m["Mesh"].as<std::string>();
-                mesh.albedo = m["Albedo"].as<glm::vec4>();
-                mesh.metallic = m["Metallic"].as<float>();
-                mesh.roughness = m["Roughness"].as<float>();
-                mesh.emissive = m["Emissive"].as<float>();
-            }
-
-            if (const auto l = node["Light"])
-            {
-                auto& light = entity.addComponent<LightComponent>();
-                light.kind = l["Kind"].as<std::string>() == "Directional"
-                                 ? LightKind::Directional : LightKind::Point;
-                light.color = l["Color"].as<glm::vec3>();
-                light.intensity = l["Intensity"].as<float>();
-                light.range = l["Range"].as<float>();
-            }
-
-            if (const auto script = node["Script"])
-            {
-                entity.addComponent<ScriptComponent>().typeName = script["Type"].as<std::string>();
-            }
+            applyComponents(node, entity);
         }
 
         return true;
+    }
+
+    bool SceneSerializer::savePrefab(Entity entity, const std::string& path)
+    {
+        if (!entity.isValid())
+        {
+            std::cerr << "[PREFAB] refusing to save an invalid entity." << std::endl;
+            return false;
+        }
+
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "Prefab" << YAML::Value << entity.getName();
+        out << YAML::Key << "Root" << YAML::Value;
+        serializeEntity(out, entity);
+        out << YAML::EndMap;
+
+        std::ofstream file(path);
+        if (!file)
+        {
+            std::cerr << "[PREFAB] could not open " << path << " for writing." << std::endl;
+            return false;
+        }
+        file << out.c_str();
+        return true;
+    }
+
+    Entity SceneSerializer::instantiatePrefab(Scene& scene, const std::string& path)
+    {
+        YAML::Node data;
+        try
+        {
+            data = YAML::LoadFile(path);
+        }
+        catch (const YAML::Exception& e)
+        {
+            std::cerr << "[PREFAB] could not parse " << path << ": " << e.what() << std::endl;
+            return {};
+        }
+
+        if (!data["Prefab"] || !data["Root"])
+        {
+            std::cerr << "[PREFAB] " << path << " is not a prefab file." << std::endl;
+            return {};
+        }
+
+        const auto root = data["Root"];
+        const std::string tag = root["Tag"] ? root["Tag"].as<std::string>()
+                                            : data["Prefab"].as<std::string>();
+
+        Entity entity = scene.createEntity(tag);
+        applyComponents(root, entity);
+        return entity;
     }
 }

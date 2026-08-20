@@ -31,6 +31,25 @@ namespace ScrapGameEngine
         glm::vec3 direction{-0.4f, -1.0f, -0.35f};
         glm::vec3 color{1.0f};
         float intensity = 3.0f;
+        bool castsShadows = true;
+    };
+
+    /**
+     * @struct SkySettings
+     * @brief A procedural gradient sky.
+     *
+     * Procedural rather than a cubemap: it needs no assets to ship, reads correctly at
+     * any resolution, and gives the horizon an ambient tint that a flat clear colour
+     * cannot. A cubemap path can sit behind the same call later.
+     */
+    struct SkySettings
+    {
+        glm::vec3 zenith{0.20f, 0.34f, 0.52f};
+        glm::vec3 horizon{0.62f, 0.68f, 0.74f};
+        glm::vec3 ground{0.10f, 0.11f, 0.13f};
+        float sunSize = 0.03f;
+        float sunIntensity = 12.0f;
+        bool enabled = true;
     };
 
     /**
@@ -126,6 +145,37 @@ namespace ScrapGameEngine
         /** @brief Enables or disables frustum culling, for A/B measurement. */
         static void setCullingEnabled(bool enabled);
         static bool isCullingEnabled();
+
+        /** @brief Sets the procedural sky for subsequent passes. */
+        static void setSky(const SkySettings& sky);
+        static const SkySettings& getSky();
+
+        /**
+         * @brief Renders the sky behind everything drawn this pass.
+         *
+         * Call before geometry: it writes no depth, so anything drawn after occludes it.
+         */
+        static void drawSky(const glm::mat4& viewProjection);
+
+        // --- shadows ---------------------------------------------------------
+
+        /** @brief Enables or disables directional shadow mapping. */
+        static void setShadowsEnabled(bool enabled);
+        static bool areShadowsEnabled();
+
+        /**
+         * @brief Starts the depth-only pass from the sun's point of view.
+         *
+         * The caller draws the same meshes again between this and endShadowPass;
+         * whatever is drawn is what casts. Returns false when shadows are off, so the
+         * caller can skip the second traversal entirely.
+         */
+        static bool beginShadowPass(const glm::vec3& sceneCenter, float sceneRadius);
+
+        /** @brief Submits a mesh to the shadow pass. Depth only, no material. */
+        static void drawMeshShadow(const std::shared_ptr<Mesh3D>& mesh, const glm::mat4& transform);
+
+        static void endShadowPass();
 
         /** @brief Draws the reference grid on the XZ plane. */
         static void drawGrid(const glm::mat4& viewProjection, float extent = 20.0f);

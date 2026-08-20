@@ -16,6 +16,7 @@
     },
     "imguizmo",
     "entt",
-    "yaml-cpp"
+    "yaml-cpp",
+    "cgltf"
   ]
 }
