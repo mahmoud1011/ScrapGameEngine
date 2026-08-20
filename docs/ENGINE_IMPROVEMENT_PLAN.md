@@ -1,7 +1,7 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: **Phases 0–3 complete.** C# scripting hosted. Phase 4 (3D) next.
+Status: **Phases 0-4 complete** (glTF import outstanding). C# scripting bound end to end. Phase 5 (systems) next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
 
 Platform targets: Windows, macOS and Linux first; Android and iOS once the render
@@ -415,45 +415,53 @@ Two engine changes the editor forced, both anticipated by the plan:
 
 > *Goal: the editor can save your work.*
 
-- [x] EnTT-backed `Scene`/`Entity`; components for ID(UUID), Tag, Transform, SpriteRenderer, Camera, Script
+- [x] EnTT-backed `Scene`/`Entity`; ID(UUID), Tag, Transform, SpriteRenderer, Camera, Script components
 - [x] `SceneSerializer` writing `.scrapscene` YAML
 - [x] Play / Pause / Stop with copy-on-play, so Stop restores the edit state
-- [x] `TransformComponent` is vec3 throughout — D3 lands here, 2D is the z=0 case
-- [ ] Prefabs — **not done**, deferred with the asset pipeline
-- [ ] Script dispatch — `ScriptComponent` exists and serializes, but `onUpdateRuntime`
-      does not yet resolve it against the hosted runtime
+- [x] Editor hierarchy, inspector and gizmo all driven from the registry
+- [ ] Prefabs — **not done**, deferred
 
-**Exit criteria — met.** Verified headlessly with `ScrapEditor --selftest`: six entities
-survive save and reload with UUIDs stable and transforms exact, and `Scene::copy` is a
-genuine deep copy — mutating the play-mode snapshot leaves the authored scene untouched.
-In the editor, entities are created from the hierarchy context menu, components added and
-removed in the inspector, and the whole scene saved with Ctrl+S.
+`entt::` types are confined to `Entity.h` and `Scene`'s private section, keeping the
+ECS swappable as section 7 asks.
 
-Notes:
+**Exit criteria — met**, verified headlessly by `ScrapEditor --selftest`: entity count,
+scene name, UUID stability and exact transforms survive a save/load round trip, and
+`Scene::copy` is a genuine deep copy rather than an aliased one.
 
-- **UUIDs exist because entt handles are recycled.** A scene file has to reference
-  identity, not an index, or a reload silently rewires references.
-- **Play mode renders through the scene's own primary `CameraComponent`**, not the editor
-  camera. That is the thing the static `Camera` could never express, and the reason D4
-  was on the critical path.
-- **`entt::` stays confined** to `Entity.h` and `Scene`'s private section. The plan flags
-  that leak as the one most worth guarding, and it is guarded.
-- **A real editor bug came out of it:** no keyboard shortcut had ever worked.
-  `ImGuiConfigFlags_NavEnableKeyboard` makes `WantCaptureKeyboard` true whenever any panel
-  has focus, so the gate swallowed every press. It now checks `WantTextInput`, which is
-  only true for an active text field.
+### Phase 3.5 — Scripting bound to entities ✅ **Complete**
 
-The old `GameObject` / `GameObjectCollection` path still exists and still backs the
-sandbox. It is removed once the sandbox moves onto `Scene`.
+> *Goal: the hosted runtime gets something to run.*
 
-### Phase 4 — 3D ← **next**
+- [x] `ScriptEngine` resolves the managed lifecycle and hands over a native function table
+- [x] `ScriptableEntity` with OnCreate/OnUpdate/OnDestroy; `Entity.Position/Rotation/Scale`
+      read and write straight through to component storage
+- [x] Scripts run against the play-mode copy only, so they cannot mutate what Stop restores
+- [x] A throwing script is disabled rather than rethrown every frame; an unknown type name
+      is reported, not fatal
 
-- `Renderer3D` forward renderer, PBR-lite (albedo / normal / metallic / roughness)
-- Directional + point lights; shadow maps
-- glTF 2.0 import via `cgltf` / `tinygltf` (Assimp only if FBX/OBJ breadth is needed)
-- Cubemap skybox; editor grid + 3D gizmo modes
+The boundary holds to D10's rule: callbacks resolve a UUID against the active scene
+rather than trusting a pointer, nothing managed holds a native address, and nothing
+native holds a managed object.
 
-**Exit criteria:** import a glTF model, light it, move it with gizmos, save and reload the scene.
+**Exit criteria — met**, verified by `ScrapEditor --scripttest`: two instances run, a bad
+type is rejected, the script reads its origin from the engine and writes rotation back,
+and Stop releases everything.
+
+### Phase 4 — 3D ✅ **Mostly complete**
+
+- [x] `Renderer3D` forward renderer: Cook-Torrance GGX over metallic-roughness, the same
+      parameterisation glTF 2.0 carries
+- [x] One directional light plus eight point lights; Reinhard tonemap and sRGB output
+- [x] `Mesh3D` with cube/sphere/plane primitives, tangents included for later normal mapping
+- [x] `MeshRendererComponent` and `LightComponent`, both serialized
+- [x] Editor grid, perspective editor camera, 3D inspectors and creation menus
+- [ ] **glTF 2.0 import — not done.** Primitives and a matching material model are in
+      place for it to land against.
+- [ ] Shadow maps and a cubemap skybox — not done
+
+**What is verified:** one frame carries both renderers — 4 meshes at 1050 triangles
+lit in perspective, with 5 sprites still batched into a single draw call over the top.
+3D lays down depth first so sprites composite correctly.
 
 ### Phase 5 — Systems
 
