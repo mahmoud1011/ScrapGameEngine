@@ -1,7 +1,7 @@
 # ScrapEngine — Architecture & Improvement Plan
 
 Branch: `EngineImprovement`
-Status: **Phases 0-4 complete** (glTF import outstanding). C# scripting bound end to end. Phase 5 (systems) next.
+Status: **Phases 0-4 complete, backlog cleared.** Phase 5 (systems) next.
 Scope: take ScrapGameEngine 0.7 from a 2D coursework framework to **ScrapEngine**, an editor-driven 2D/3D engine.
 
 Platform targets: Windows, macOS and Linux first; Android and iOS once the render
@@ -379,7 +379,7 @@ Notes on what Phase 1 turned up:
 - [x] `EditorCamera` — orbit/pan/zoom, fully independent of the engine's Camera
 - [x] Default dock layout built programmatically on first run, then the user's own layout persists
 - [x] A distinct visual identity: slate chrome, a patina accent used only for state, square corners
-- [ ] Mouse picking via an entity-ID attachment readback — **not done**, selection is hierarchy-only for now
+- [x] Mouse picking via an entity-ID attachment readback
 - [ ] `Text` rendering — still unimplemented, carried forward
 
 **Exit criteria — met for selection and editing.** The editor opens on a docked
@@ -419,7 +419,7 @@ Two engine changes the editor forced, both anticipated by the plan:
 - [x] `SceneSerializer` writing `.scrapscene` YAML
 - [x] Play / Pause / Stop with copy-on-play, so Stop restores the edit state
 - [x] Editor hierarchy, inspector and gizmo all driven from the registry
-- [ ] Prefabs — **not done**, deferred
+- [x] Prefabs
 
 `entt::` types are confined to `Entity.h` and `Scene`'s private section, keeping the
 ECS swappable as section 7 asks.
@@ -447,21 +447,43 @@ native holds a managed object.
 type is rejected, the script reads its origin from the engine and writes rotation back,
 and Stop releases everything.
 
-### Phase 4 — 3D ✅ **Mostly complete**
+### Phase 4 — 3D ✅ **Complete**
 
-- [x] `Renderer3D` forward renderer: Cook-Torrance GGX over metallic-roughness, the same
-      parameterisation glTF 2.0 carries
-- [x] One directional light plus eight point lights; Reinhard tonemap and sRGB output
-- [x] `Mesh3D` with cube/sphere/plane primitives, tangents included for later normal mapping
+- [x] `Renderer3D` forward renderer: Cook-Torrance GGX over metallic-roughness
+- [x] Directional plus eight point lights; Reinhard tonemap and sRGB output
+- [x] `Mesh3D` with cube/sphere/plane primitives and tangents
 - [x] `MeshRendererComponent` and `LightComponent`, both serialized
-- [x] Editor grid, perspective editor camera, 3D inspectors and creation menus
-- [ ] **glTF 2.0 import — not done.** Primitives and a matching material model are in
-      place for it to land against.
-- [ ] Shadow maps and a cubemap skybox — not done
+- [x] Editor grid, perspective camera, 3D inspectors and creation menus
+- [x] **glTF 2.0 import** via cgltf — walks nodes so an instanced mesh yields a
+      primitive per placement; reads metallic-roughness directly and derives tangents
+      when absent. Parsing is CPU-only with `upload()` separate, so it is testable
+      headlessly and can move off the main thread later.
+- [x] **Shadow maps** — 2048² directional depth pass, 3×3 PCF, slope-scaled bias,
+      front-face culling during the depth pass
+- [x] **Procedural sky** — gradient from a fullscreen triangle, unprojecting per pixel
+      to a world ray. No assets to ship and correct at any resolution.
+- [ ] Cascaded shadows and IBL — not needed at this scene scale; section 7 names when
 
-**What is verified:** one frame carries both renderers — 4 meshes at 1050 triangles
-lit in perspective, with 5 sprites still batched into a single draw call over the top.
-3D lays down depth first so sprites composite correctly.
+### Phase 4.5 — Game view, picking and measured optimization ✅ **Complete**
+
+- [x] **Game view** — the renderer no longer owns a single static target;
+      `beginFrameInto` takes a caller-owned Framebuffer and the editor holds two.
+      Scene and Game dock as tabs and both render every frame, so the Game view
+      previews framing while you author.
+- [x] **Viewport picking** — an optional R32I attachment holds the entity id per
+      pixel; a click reads back one pixel. Correct for alpha-cut sprites, which a
+      bounds test gets wrong.
+- [x] **Per-frame uniform split** — light and camera uniforms were re-sent per mesh,
+      so cost grew with meshes × lights. Measured at 4000 meshes and 8 lights:
+      **140,888 → 19,212 uploads**.
+- [x] **Frustum culling** — Gribb-Hartmann planes and a conservative sphere bound.
+      Same scene: **153.5 → 99.1 ms/frame, 1.55×**.
+- [x] `--stress N` benchmark, so both are re-checkable after any renderer change.
+
+**The honest read on performance:** culling and uniform trimming are real wins, but at
+high mesh counts the wall is per-mesh draw calls and fragment shading with eight lights
+— at 1500 meshes culling only buys 1.06× because almost nothing is off-screen.
+**Instancing and a per-mesh light cull are the next wins**, not more uniform trimming.
 
 ### Phase 5 — Systems
 
