@@ -9,6 +9,7 @@
 #include "scene/Scene.h"
 #include "scene/SceneSerializer.h"
 #include "assets/GltfImporter.h"
+#include "project/Project.h"
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/ScriptEngine.h"
@@ -21,7 +22,12 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -709,37 +715,210 @@ namespace Scrap::Editor
 
     // ---------------------------------------------------------- content browser
 
+    namespace
+    {
+        char newItemName[128] = "";
+        std::filesystem::path pendingDelete;
+        std::string pendingDeleteLabel;
+        enum class CreateKind { None, Folder, Script, Scene };
+        CreateKind pendingCreate = CreateKind::None;
+
+        /** A script that compiles and does something, so a new file is not a blank page. */
+        std::string scriptTemplate(const std::string& className)
+        {
+            return
+                "using Scrap;\n\n"
+                "namespace Game;\n\n"
+                "/// <summary>Attach by putting Game." + className +
+                " into a ScriptComponent's Type field.</summary>\n"
+                "public sealed class " + className + " : ScriptableEntity\n"
+                "{\n"
+                "    public override void OnCreate()\n"
+                "    {\n"
+                "        Log.Info($\"" + className + " ready on {Entity}\");\n"
+                "    }\n\n"
+                "    public override void OnUpdate(float deltaTime)\n"
+                "    {\n"
+                "    }\n"
+                "}\n";
+        }
+
+        /** Turns a filename into something usable as a C# identifier. */
+        std::string sanitizeClassName(std::string name)
+        {
+            std::string out;
+            for (char c : name)
+            {
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') out += c;
+            }
+            if (out.empty()) out = "NewScript";
+            if (std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(out.begin(), '_');
+            return out;
+        }
+
+        const char* glyphFor(const std::filesystem::path& path, bool isDir)
+        {
+            if (isDir) return "[DIR]";
+            const auto ext = path.extension().string();
+            if (ext == ".cs") return "[C#]";
+            if (ext == Scrap::Project::kSceneExtension) return "[SCENE]";
+            if (ext == Scrap::Project::kPrefabExtension) return "[PREFAB]";
+            if (GltfImporter::isSupported(path.string())) return "[MESH]";
+            if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return "[IMG]";
+            return "[FILE]";
+        }
+
+        ImVec4 colorFor(const std::filesystem::path& path, bool isDir)
+        {
+            if (isDir) return Palette::Accent;
+            const auto ext = path.extension().string();
+            if (ext == ".cs") return Palette::AxisY;
+            if (ext == Scrap::Project::kSceneExtension) return Palette::AxisZ;
+            if (ext == Scrap::Project::kPrefabExtension) return Palette::AxisX;
+            if (GltfImporter::isSupported(path.string())) return Palette::Warning;
+            return Palette::InkMuted;
+        }
+    }
+
     void Panels::drawContentBrowser()
     {
-        ImGui::Begin("Content");
-
+        auto& ctx = EditorContext::get();
         namespace fs = std::filesystem;
 
-        if (contentCurrent != contentRoot)
-        {
-            if (ImGui::Button("< Back")) contentCurrent = contentCurrent.parent_path();
-            ImGui::SameLine();
-        }
-        ImGui::PushStyleColor(ImGuiCol_Text, P::InkMuted);
-        ImGui::TextUnformatted(contentCurrent.string().c_str());
-        ImGui::PopStyleColor();
-        ImGui::Separator();
+        ImGui::Begin("Content");
 
-        std::error_code ec;
-        if (!fs::exists(contentCurrent, ec))
+        auto project = Scrap::Project::active();
+        if (!project)
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, P::Warning);
-            ImGui::TextWrapped("Content root not found: %s", contentCurrent.string().c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+            ImGui::TextWrapped("No project open.");
             ImGui::PopStyleColor();
             ImGui::End();
             return;
         }
 
-        // Grid of tiles, directories first.
+        // Keep the browser inside the project. contentCurrent may be stale after a
+        // delete, so it is validated every frame rather than trusted.
+        std::error_code ec;
+        if (contentCurrent.empty() || !fs::exists(contentCurrent, ec))
+            contentCurrent = project->assetsDirectory();
+
+        const bool atRoot = fs::equivalent(contentCurrent, project->assetsDirectory(), ec);
+
+        ImGui::BeginDisabled(atRoot);
+        if (ImGui::Button("< Back")) contentCurrent = contentCurrent.parent_path();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, P::InkMuted);
+        ImGui::TextUnformatted(("assets/" + project->relativize(contentCurrent)).c_str());
+        ImGui::PopStyleColor();
+
+        ImGui::SameLine(ImGui::GetWindowWidth() - 120.0f);
+        if (ImGui::Button("+ New")) ImGui::OpenPopup("##createMenu");
+
+        if (ImGui::BeginPopup("##createMenu"))
+        {
+            if (ImGui::MenuItem("Folder"))
+            {
+                pendingCreate = CreateKind::Folder;
+                std::snprintf(newItemName, sizeof(newItemName), "NewFolder");
+            }
+            if (ImGui::MenuItem("C# Script"))
+            {
+                pendingCreate = CreateKind::Script;
+                std::snprintf(newItemName, sizeof(newItemName), "NewScript");
+            }
+            if (ImGui::MenuItem("Scene"))
+            {
+                pendingCreate = CreateKind::Scene;
+                std::snprintf(newItemName, sizeof(newItemName), "NewScene");
+            }
+            ImGui::EndPopup();
+        }
+
+        if (pendingCreate != CreateKind::None) ImGui::OpenPopup("Create");
+        if (ImGui::BeginPopupModal("Create", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            const char* label = pendingCreate == CreateKind::Folder ? "Folder name"
+                              : pendingCreate == CreateKind::Script ? "Script name"
+                                                                    : "Scene name";
+            ImGui::TextUnformatted(label);
+            ImGui::SetNextItemWidth(280.0f);
+            const bool submitted = ImGui::InputText("##newName", newItemName, sizeof(newItemName),
+                                                    ImGuiInputTextFlags_EnterReturnsTrue);
+
+            if (ImGui::Button("Create", ImVec2(120, 0)) || submitted)
+            {
+                const std::string name = newItemName;
+                if (name.empty())
+                {
+                    ctx.logError("A name is required.");
+                }
+                else if (pendingCreate == CreateKind::Folder)
+                {
+                    const fs::path target = contentCurrent / name;
+                    if (fs::exists(target, ec)) ctx.logError("Already exists: " + name);
+                    else if (fs::create_directory(target, ec)) ctx.logInfo("Created folder " + name);
+                    else ctx.logError("Could not create " + name);
+                }
+                else if (pendingCreate == CreateKind::Script)
+                {
+                    const std::string className = sanitizeClassName(name);
+                    const fs::path target = contentCurrent / (className + ".cs");
+                    if (fs::exists(target, ec))
+                    {
+                        ctx.logError("Already exists: " + target.filename().string());
+                    }
+                    else
+                    {
+                        std::ofstream file(target);
+                        if (file)
+                        {
+                            file << scriptTemplate(className);
+                            ctx.logInfo("Created script " + target.filename().string() +
+                                        " - rebuild ScrapScript to load it");
+                        }
+                        else ctx.logError("Could not write " + target.string());
+                    }
+                }
+                else if (pendingCreate == CreateKind::Scene)
+                {
+                    const fs::path target =
+                        contentCurrent / (name + Scrap::Project::kSceneExtension);
+                    if (fs::exists(target, ec))
+                    {
+                        ctx.logError("Already exists: " + target.filename().string());
+                    }
+                    else
+                    {
+                        auto scene = std::make_shared<Scrap::Scene>();
+                        scene->setName(name);
+                        if (Scrap::SceneSerializer(scene).serialize(target.string()))
+                            ctx.logInfo("Created scene " + target.filename().string());
+                        else
+                            ctx.logError("Could not write " + target.string());
+                    }
+                }
+
+                pendingCreate = CreateKind::None;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                pendingCreate = CreateKind::None;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        ImGui::Separator();
+
+        // --- the grid ------------------------------------------------------
         const float tile = 84.0f;
         const float cell = tile + ImGui::GetStyle().ItemSpacing.x;
         const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell));
-
         ImGui::Columns(columns, nullptr, false);
 
         std::vector<fs::directory_entry> entries;
@@ -753,33 +932,47 @@ namespace Scrap::Editor
         {
             const bool isDir = entry.is_directory();
             const std::string filename = entry.path().filename().string();
+            const auto ext = entry.path().extension().string();
 
             ImGui::PushID(filename.c_str());
             ImGui::PushStyleColor(ImGuiCol_Button, P::Surface);
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, P::Raised);
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                isDir ? P::Accent
-                      : (GltfImporter::isSupported(entry.path().string()) ? P::Warning
-                                                                          : P::InkMuted));
+            ImGui::PushStyleColor(ImGuiCol_Text, colorFor(entry.path(), isDir));
 
-            const bool isModel = !isDir && GltfImporter::isSupported(entry.path().string());
-            const char* glyph = isDir ? "[DIR]" : isModel ? "[MESH]" : "[FILE]";
-
-            if (ImGui::Button(glyph, ImVec2(tile, tile)))
+            if (ImGui::Button(glyphFor(entry.path(), isDir), ImVec2(tile, tile)))
             {
-                if (isDir) contentCurrent = entry.path();
-                else if (isModel)
+                if (isDir)
                 {
-                    auto& ctx = EditorContext::get();
-                    auto primitives = GltfImporter::load(entry.path().string());
-                    if (primitives.empty())
+                    contentCurrent = entry.path();
+                }
+                else if (ext == Scrap::Project::kSceneExtension)
+                {
+                    // Opening a scene replaces what is being edited, so stop play mode
+                    // first rather than leaving a running copy of the old one.
+                    ctx.onStop();
+                    auto loaded = std::make_shared<Scrap::Scene>();
+                    if (Scrap::SceneSerializer(loaded).deserialize(entry.path().string()))
                     {
-                        ctx.logError("Import failed: " + filename);
+                        ctx.editorScene = loaded;
+                        ctx.activeScene = loaded;
+                        ctx.scenePath = entry.path().string();
+                        ctx.clearSelection();
+                        ctx.logInfo("Opened scene " + filename);
                     }
+                    else ctx.logError("Could not open " + filename);
+                }
+                else if (ext == Scrap::Project::kPrefabExtension)
+                {
+                    Entity e = Scrap::SceneSerializer::instantiatePrefab(
+                        *ctx.activeScene, entry.path().string());
+                    if (e) { ctx.select(e); ctx.logInfo("Instantiated " + filename); }
+                }
+                else if (GltfImporter::isSupported(entry.path().string()))
+                {
+                    auto primitives = GltfImporter::load(entry.path().string());
+                    if (primitives.empty()) ctx.logError("Import failed: " + filename);
                     else
                     {
-                        // One entity per primitive, since each carries its own material
-                        // and its own node transform.
                         for (auto& primitive : primitives)
                         {
                             auto mesh = primitive.upload();
@@ -795,7 +988,6 @@ namespace Scrap::Editor
                             mr.roughness = primitive.roughness;
                             mr.emissive = primitive.emissive;
 
-                            // Decompose the baked node transform into the component.
                             auto& t = e.getComponent<Scrap::TransformComponent>();
                             t.translation = glm::vec3(primitive.transform[3]);
                             t.scale = {glm::length(glm::vec3(primitive.transform[0])),
@@ -807,17 +999,105 @@ namespace Scrap::Editor
                                     " primitive(s) from " + filename);
                     }
                 }
+                else if (ext == ".cs")
+                {
+                    // No built-in code editor, so hand the file to whatever the OS
+                    // associates with .cs - which is the editor the user already uses.
+                    const std::string command = "start \"\" \"" + entry.path().string() + "\"";
+                    std::system(command.c_str());
+                }
             }
-            if (isModel && ImGui::IsItemHovered())
-                ImGui::SetTooltip("Click to import into the scene");
 
             ImGui::PopStyleColor(3);
+
+            if (ImGui::BeginPopupContextItem("##itemCtx"))
+            {
+                if (ext == ".cs" && ImGui::MenuItem("Open in editor"))
+                {
+                    const std::string command = "start \"\" \"" + entry.path().string() + "\"";
+                    std::system(command.c_str());
+                }
+                if (ImGui::MenuItem("Show in Explorer"))
+                {
+                    const std::string command = "explorer /select,\"" + entry.path().string() + "\"";
+                    std::system(command.c_str());
+                }
+                ImGui::Separator();
+                ImGui::PushStyleColor(ImGuiCol_Text, P::Danger);
+                if (ImGui::MenuItem("Delete"))
+                {
+                    pendingDelete = entry.path();
+                    pendingDeleteLabel = filename;
+                }
+                ImGui::PopStyleColor();
+                ImGui::EndPopup();
+            }
+
+            if (!isDir && ImGui::IsItemHovered())
+            {
+                const char* hint =
+                    ext == Scrap::Project::kSceneExtension ? "Click to open this scene" :
+                    ext == Scrap::Project::kPrefabExtension ? "Click to instantiate" :
+                    ext == ".cs" ? "Click to open in your code editor" :
+                    GltfImporter::isSupported(entry.path().string()) ? "Click to import" : nullptr;
+                if (hint) ImGui::SetTooltip("%s", hint);
+            }
+
             ImGui::TextWrapped("%s", filename.c_str());
             ImGui::PopID();
             ImGui::NextColumn();
         }
 
         ImGui::Columns(1);
+
+        if (entries.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+            ImGui::TextWrapped("This folder is empty. Use + New to add something.");
+            ImGui::PopStyleColor();
+        }
+
+        // Deleting is confirmed rather than immediate: a folder delete is recursive
+        // and there is no undo for it yet.
+        if (!pendingDelete.empty()) ImGui::OpenPopup("Delete?");
+        if (ImGui::BeginPopupModal("Delete?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            const bool isDir = fs::is_directory(pendingDelete, ec);
+            ImGui::Text("Delete %s?", pendingDeleteLabel.c_str());
+            if (isDir)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, P::Warning);
+                ImGui::TextWrapped("This folder and everything inside it will be removed.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, P::InkFaint);
+            ImGui::TextWrapped("This cannot be undone.");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, P::Danger);
+            if (ImGui::Button("Delete", ImVec2(120, 0)))
+            {
+                std::error_code delEc;
+                const auto removed = fs::remove_all(pendingDelete, delEc);
+                if (delEc || removed == 0)
+                    ctx.logError("Could not delete " + pendingDeleteLabel);
+                else
+                    ctx.logInfo("Deleted " + pendingDeleteLabel);
+
+                pendingDelete.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                pendingDelete.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
         ImGui::End();
     }
 

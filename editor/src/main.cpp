@@ -9,6 +9,7 @@
 #include "EditorContext.h"
 #include "ImGuiLayer.h"
 #include "Panels.h"
+#include "ProjectHub.h"
 #include "ScrapTheme.h"
 
 #include "platform/AppWindow.h"
@@ -21,6 +22,7 @@
 #include "scene/Entity.h"
 #include "scene/Scene.h"
 #include "scene/SceneSerializer.h"
+#include "project/Project.h"
 #include "assets/GltfImporter.h"
 #include "rhi/Framebuffer.h"
 
@@ -221,6 +223,85 @@ static int runSelfTest()
     if (std::abs(instanceA.getComponent<Scrap::MeshRendererComponent>().metallic - 1.0f) > 1e-4f)
     {
         std::cerr << "FAIL: prefab lost material\n"; return 1;
+    }
+
+    // --- project system ----------------------------------------------------
+    {
+        namespace fs = std::filesystem;
+        const fs::path sandbox = fs::temp_directory_path() / "scrap-selftest-project";
+        std::error_code ec;
+        fs::remove_all(sandbox, ec);
+
+        auto created = Scrap::Project::create(sandbox, "SelfTestProject");
+        if (!created) { std::cerr << "FAIL: project create\n"; return 1; }
+
+        // The standard layout must exist, or the content browser has nothing to show
+        // and the editor has nowhere to put a scene.
+        for (const auto& dir : {created->assetsDirectory(), created->scenesDirectory(),
+                                created->scriptsDirectory(), created->prefabsDirectory()})
+        {
+            if (!fs::exists(dir, ec))
+            {
+                std::cerr << "FAIL: missing project folder " << dir.string() << "\n";
+                return 1;
+            }
+        }
+        if (!fs::exists(created->scriptsDirectory() / "Player.cs", ec))
+        {
+            std::cerr << "FAIL: starter script not written\n"; return 1;
+        }
+
+        // Creating over a non-empty folder must be refused rather than scattering a
+        // layout through someone else's directory.
+        if (Scrap::Project::create(sandbox, "Duplicate") != nullptr)
+        {
+            std::cerr << "FAIL: create overwrote a non-empty folder\n"; return 1;
+        }
+
+        // Reopening by folder, not just by file, since that is what a user picks.
+        auto reopened = Scrap::Project::open(sandbox);
+        if (!reopened) { std::cerr << "FAIL: project open by directory\n"; return 1; }
+        if (reopened->getConfig().name != "SelfTestProject")
+        {
+            std::cerr << "FAIL: project name lost\n"; return 1;
+        }
+        if (reopened->getConfig().startScene != "scenes/Main.scrapscene")
+        {
+            std::cerr << "FAIL: start scene lost\n"; return 1;
+        }
+
+        // Paths round-trip: absolute for use, relative for storage.
+        const fs::path resolved = reopened->resolve("scenes/Main.scrapscene");
+        if (reopened->relativize(resolved) != "scenes/Main.scrapscene")
+        {
+            std::cerr << "FAIL: path relativize round trip, got "
+                      << reopened->relativize(resolved) << "\n";
+            return 1;
+        }
+
+        // A scene written into the project must be discoverable.
+        auto projectScene = std::make_shared<Scrap::Scene>();
+        projectScene->setName("Main");
+        fs::create_directories(resolved.parent_path(), ec);
+        if (!Scrap::SceneSerializer(projectScene).serialize(resolved.string()))
+        {
+            std::cerr << "FAIL: could not write scene into project\n"; return 1;
+        }
+        if (reopened->findScenes().size() != 1)
+        {
+            std::cerr << "FAIL: findScenes found " << reopened->findScenes().size() << "\n";
+            return 1;
+        }
+        if (reopened->findScripts().size() != 1)
+        {
+            std::cerr << "FAIL: findScripts found " << reopened->findScripts().size() << "\n";
+            return 1;
+        }
+
+        std::cout << "PROJECT OK - layout created, reopened by folder, paths round-trip, "
+                  << "1 scene and 1 script discovered" << std::endl;
+
+        fs::remove_all(sandbox, ec);
     }
 
     // --- glTF import -------------------------------------------------------
@@ -550,7 +631,23 @@ int main(int argc, char** argv)
         }
     }
 
-    AppWindowData windowData(1600, 900, "ScrapEditor");
+    if (!glfwInit())
+    {
+        std::cerr << "[EDITOR] GLFW failed to initialise." << std::endl;
+        return 1;
+    }
+
+    auto project = Scrap::Project::active();
+    if (!project) project = ProjectHub::run();
+    if (!project)
+    {
+        // Hub closed without choosing - a normal exit, not a failure.
+        glfwTerminate();
+        return 0;
+    }
+
+    const std::string title = "ScrapEditor - " + project->getConfig().name;
+    AppWindowData windowData(1600, 900, title);
     AppWindow window(windowData);
 
     if (window.init(windowData) <= 0)
@@ -596,28 +693,30 @@ int main(int argc, char** argv)
     }
     ctx.logInfo("ScrapEditor ready.");
 
-    // Root the content browser at the sandbox's assets if they are alongside us.
     namespace fs = std::filesystem;
-    for (const auto& candidate : {fs::path("../assets"), fs::path("assets"), fs::path(".")})
-    {
-        if (fs::exists(candidate)) { Panels::setContentRoot(candidate); break; }
-    }
+    Panels::setContentRoot(project->assetsDirectory());
+    ctx.logInfo("Project: " + project->getConfig().name);
 
     ctx.editorScene = std::make_shared<Scrap::Scene>();
     ctx.activeScene = ctx.editorScene;
-    ctx.scenePath = "assets/scenes/Sample.scrapscene";
+    ctx.scenePath = project->resolve(project->getConfig().startScene).string();
 
     {
         Scrap::SceneSerializer loader(ctx.editorScene);
         if (loader.deserialize(ctx.scenePath))
         {
-            ctx.logInfo("Loaded scene: " + ctx.scenePath);
+            ctx.logInfo("Loaded scene: " + project->relativize(ctx.scenePath));
         }
         else
         {
-            ctx.editorScene->setName("Sample");
+            // A new project has no scene yet, so one is built and written where the
+            // project config already says the start scene lives.
+            ctx.editorScene->setName("Main");
             createStarterScene(ctx.editorScene);
-            ctx.logInfo("No scene file found - created a starter scene.");
+            fs::create_directories(fs::path(ctx.scenePath).parent_path());
+            Scrap::SceneSerializer(ctx.editorScene).serialize(ctx.scenePath);
+            ctx.logInfo("Created starter scene at " +
+                        project->relativize(ctx.scenePath));
         }
     }
 
@@ -727,8 +826,15 @@ int main(int argc, char** argv)
                         std::filesystem::path(ctx.scenePath).parent_path());
                     Scrap::SceneSerializer saver(ctx.editorScene);
                     ctx.logInfo(saver.serialize(ctx.scenePath)
-                        ? "Saved " + ctx.scenePath
+                        ? "Saved " + project->relativize(ctx.scenePath)
                         : "Could not save " + ctx.scenePath);
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Close Project"))
+                {
+                    // Returning to the hub means tearing this window down; simplest
+                    // and least surprising is to exit and let the user relaunch.
+                    running = false;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) running = false;

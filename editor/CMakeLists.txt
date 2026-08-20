@@ -7,6 +7,7 @@ add_executable(ScrapEditor
     src/EditorContext.cpp
     src/ImGuiLayer.cpp
     src/Panels.cpp
+    src/ProjectHub.cpp
     src/ScrapTheme.cpp
 )
 

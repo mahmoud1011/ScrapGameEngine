@@ -66,3 +66,7 @@ scripting/**/obj/
 
 # Editor self-test scratch output
 build/**/selftest.scrapscene
+
+# Editor-local state and user projects
+build/windows/bin/scrap-recent-projects.yaml
+projects/

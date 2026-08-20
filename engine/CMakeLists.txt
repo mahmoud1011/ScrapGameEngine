@@ -8,6 +8,7 @@ find_path(MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
 
 add_library(ScrapEngine STATIC
     src/assets/GltfImporter.cpp
+    src/project/Project.cpp
 
     src/core/Application.cpp
     src/core/Scheduler.cpp
