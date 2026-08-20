@@ -94,11 +94,22 @@ namespace ScrapGameEngine
 
         void setLayout(const BufferLayout& value) { layout = value; }
         const BufferLayout& getLayout() const { return layout; }
+
+        /**
+         * @brief Marks this buffer as holding per-instance data.
+         *
+         * Every attribute from it then advances once per instance rather than once
+         * per vertex. Set on the buffer rather than per element, because mixing the
+         * two rates within one buffer is not something any sane layout wants.
+         */
+        void setInstanced(bool value) { instanced = value; }
+        bool isInstanced() const { return instanced; }
         unsigned int getID() const { return id; }
 
     private:
         unsigned int id = 0;
         BufferLayout layout;
+        bool instanced = false;
     };
 
     /**

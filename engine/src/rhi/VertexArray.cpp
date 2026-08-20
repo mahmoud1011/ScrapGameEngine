@@ -60,6 +60,8 @@ void VertexArray::addVertexBuffer(const VertexBuffer& buffer)
     glBindVertexArray(id);
     buffer.bind();
 
+    const GLuint divisor = buffer.isInstanced() ? 1u : 0u;
+
     for (const auto& element : layout)
     {
         const GLenum baseType = toGLBaseType(element.type);
@@ -75,6 +77,7 @@ void VertexArray::addVertexBuffer(const VertexBuffer& buffer)
                 static_cast<GLint>(shaderDataTypeComponentCount(element.type)),
                 baseType, stride,
                 reinterpret_cast<const void*>(static_cast<uintptr_t>(element.offset)));
+            glVertexAttribDivisor(attributeIndex, divisor);
             attributeIndex++;
         }
         else if (element.type == ShaderDataType::Mat3 || element.type == ShaderDataType::Mat4)
@@ -89,7 +92,7 @@ void VertexArray::addVertexBuffer(const VertexBuffer& buffer)
                     element.normalized ? GL_TRUE : GL_FALSE, stride,
                     reinterpret_cast<const void*>(static_cast<uintptr_t>(
                         element.offset + sizeof(float) * columns * c)));
-                glVertexAttribDivisor(attributeIndex, 1);
+                glVertexAttribDivisor(attributeIndex, divisor);
                 attributeIndex++;
             }
         }
@@ -101,6 +104,7 @@ void VertexArray::addVertexBuffer(const VertexBuffer& buffer)
                 static_cast<GLint>(shaderDataTypeComponentCount(element.type)),
                 baseType, element.normalized ? GL_TRUE : GL_FALSE, stride,
                 reinterpret_cast<const void*>(static_cast<uintptr_t>(element.offset)));
+            glVertexAttribDivisor(attributeIndex, divisor);
             attributeIndex++;
         }
     }

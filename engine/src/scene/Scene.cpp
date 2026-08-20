@@ -207,11 +207,11 @@ namespace Scrap
                                 if (mesh.mesh) break;
                             }
                         }
-                        mesh.mesh = Mesh3D::createCube();
+                        mesh.mesh = Mesh3D::sharedCube();
                         break;
-                    case PrimitiveKind::Sphere: mesh.mesh = Mesh3D::createSphere(); break;
-                    case PrimitiveKind::Plane:  mesh.mesh = Mesh3D::createPlane(4.0f); break;
-                    case PrimitiveKind::Cube: mesh.mesh = Mesh3D::createCube(); break;
+                    case PrimitiveKind::Sphere: mesh.mesh = Mesh3D::sharedSphere(); break;
+                    case PrimitiveKind::Plane:  mesh.mesh = Mesh3D::sharedPlane(); break;
+                    case PrimitiveKind::Cube: mesh.mesh = Mesh3D::sharedCube(); break;
                 }
             }
 

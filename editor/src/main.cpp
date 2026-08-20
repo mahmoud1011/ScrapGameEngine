@@ -457,6 +457,31 @@ static int runStress(int meshCount)
         return std::chrono::duration<double, std::milli>(end - start).count() / kFrames;
     };
 
+    // Culling stays on for both instancing runs - it is already established, and
+    // leaving it on measures instancing against a realistic baseline.
+    ScrapGameEngine::Renderer3D::setDepthPrepassEnabled(false);
+    ScrapGameEngine::Renderer3D::setInstancingEnabled(false);
+    const double withoutInstancing = measure(true);
+    const auto statsNoInst = ScrapGameEngine::Renderer3D::getStats();
+
+    ScrapGameEngine::Renderer3D::setInstancingEnabled(true);
+    const double withInstancing = measure(true);
+    const auto statsInst = ScrapGameEngine::Renderer3D::getStats();
+
+    ScrapGameEngine::Renderer3D::setDepthPrepassEnabled(true);
+    const double withPrepass = measure(true);
+    const auto statsPrepass = ScrapGameEngine::Renderer3D::getStats();
+
+    // Isolate the shadow pass, which renders every caster into a 2048^2 target and
+    // is the obvious suspect for a frame time this far above what the triangle count
+    // should cost.
+    ScrapGameEngine::Renderer3D::setShadowsEnabled(false);
+    const double noShadows = measure(true);
+    ScrapGameEngine::Renderer3D::setShadowsEnabled(true);
+    const double withShadows = measure(true);
+    std::cout << "shadows OFF     " << noShadows << " ms/frame\n";
+    std::cout << "shadows ON      " << withShadows << " ms/frame\n";
+
     const double withoutCulling = measure(false);
     const auto statsOff = ScrapGameEngine::Renderer3D::getStats();
     const double withCulling = measure(true);
@@ -476,16 +501,34 @@ static int runStress(int meshCount)
 
     if (withCulling > 0.0)
     {
-        std::cout << "\nspeedup       " << (withoutCulling / withCulling) << "x\n";
+        std::cout << "\nculling speedup    " << (withoutCulling / withCulling) << "x\n";
     }
 
-    // What the per-frame uniform split saves: every light uniform used to be re-sent
-    // for every mesh, so the old cost grew with meshes x lights.
-    const unsigned int perDrawNow = statsOn.meshCount * 6;
+    std::cout << "\ninstancing OFF  " << withoutInstancing << " ms/frame   draw calls "
+              << statsNoInst.drawCalls << "\n";
+    std::cout << "instancing ON   " << withInstancing << " ms/frame   draw calls "
+              << statsInst.drawCalls << "   batches " << statsInst.batches
+              << "   instances " << statsInst.instanced << "\n";
+    if (withInstancing > 0.0)
+    {
+        std::cout << "instancing speedup " << (withoutInstancing / withInstancing) << "x\n";
+    }
+
+    std::cout << "\n+ depth prepass " << withPrepass << " ms/frame   prepass draws "
+              << statsPrepass.prepassDraws << "\n";
+    if (withPrepass > 0.0)
+    {
+        std::cout << "overall speedup    " << (withoutInstancing / withPrepass)
+                  << "x vs one draw call per mesh\n";
+    }
+
+    // Material now rides in the instance data rather than in uniforms, so the
+    // per-draw uniform cost is gone entirely rather than merely reduced.
     const unsigned int perDrawBefore =
         statsOn.meshCount * (6 + 6 + ScrapGameEngine::Renderer3D::maxPointLights() * 4);
-    std::cout << "uniform sets  " << perDrawBefore << " before the per-frame split -> "
-              << perDrawNow << " now\n" << std::endl;
+    std::cout << "\nper-draw uniform sets " << perDrawBefore
+              << " originally -> " << statsOn.uniformUploads
+              << " now (material moved into instance data)\n" << std::endl;
 
     Renderer::shutdown();
     return 0;

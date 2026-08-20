@@ -12,6 +12,7 @@
 
 #include <array>
 #include <iostream>
+#include <unordered_map>
 #include <vector>
 
 using namespace ScrapGameEngine;
@@ -19,6 +20,19 @@ using namespace ScrapGameEngine;
 namespace
 {
     constexpr unsigned int kMaxPointLights = 8;
+
+    /**
+     * Per-instance data. Material lives here rather than in a uniform, which is what
+     * lets instances of one mesh with different colours share a single draw call -
+     * buckets key on the mesh alone.
+     */
+    struct InstanceData
+    {
+        glm::mat4 model;        // attribute locations 4-7
+        glm::mat4 normalMatrix; // 8-11, mat4 rather than mat3 to keep the stride simple
+        glm::vec4 albedo;       // 12
+        glm::vec4 params;       // 13: metallic, roughness, emissive, entityId
+    };
 
     struct Renderer3DData
     {
@@ -49,11 +63,28 @@ namespace
         bool initialized = false;
         bool sceneActive = false;
         bool cullingEnabled = true;
+        bool instancingEnabled = true;
+        bool depthPrepassEnabled = true;
+
+        // One bucket per mesh, filled during the pass and flushed at endScene.
+        std::unordered_map<Mesh3D*, std::vector<InstanceData>> buckets;
+        std::unordered_map<Mesh3D*, std::vector<InstanceData>> shadowBuckets;
+        VertexBuffer instanceVbo;
+        unsigned int instanceCapacity = 0;
         Frustum frustum;
         Renderer3DStats stats;
     };
 
     Renderer3DData s;
+
+    /** Grows the instance buffer geometrically, so a growing scene does not
+     *  reallocate every frame. */
+    void ensureInstanceCapacity(unsigned int needed)
+    {
+        if (needed <= s.instanceCapacity) return;
+        while (s.instanceCapacity < needed) s.instanceCapacity *= 2;
+        s.instanceVbo.createDynamic(s.instanceCapacity * sizeof(InstanceData));
+    }
 
     const char* kVertexSource = R"(#version 330 core
 layout(location = 0) in vec3 a_Position;
@@ -61,21 +92,29 @@ layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_UV;
 layout(location = 3) in vec3 a_Tangent;
 
+// Per-instance, advanced once per instance rather than per vertex.
+layout(location = 4)  in mat4 i_Model;
+layout(location = 8)  in mat4 i_NormalMatrix;
+layout(location = 12) in vec4 i_Albedo;
+layout(location = 13) in vec4 i_Params;   // metallic, roughness, emissive, entityId
+
 uniform mat4 u_ViewProjection;
-uniform mat4 u_Model;
-uniform mat3 u_NormalMatrix;
 
 out vec3 v_WorldPos;
 out vec3 v_Normal;
 out vec2 v_UV;
+flat out vec4 v_Albedo;
+flat out vec4 v_Params;
 
 void main()
 {
-    vec4 world = u_Model * vec4(a_Position, 1.0);
+    vec4 world = i_Model * vec4(a_Position, 1.0);
     v_WorldPos = world.xyz;
     // The inverse-transpose, so non-uniform scale does not shear the normal.
-    v_Normal = normalize(u_NormalMatrix * a_Normal);
+    v_Normal = normalize(mat3(i_NormalMatrix) * a_Normal);
     v_UV = a_UV;
+    v_Albedo = i_Albedo;
+    v_Params = i_Params;
     gl_Position = u_ViewProjection * world;
 }
 )";
@@ -86,19 +125,14 @@ void main()
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityId;
 
-uniform int u_EntityId;
-
 in vec3 v_WorldPos;
 in vec3 v_Normal;
 in vec2 v_UV;
+flat in vec4 v_Albedo;
+flat in vec4 v_Params;
 
 const int MAX_POINT_LIGHTS = 8;
 const float PI = 3.14159265359;
-
-uniform vec4  u_Albedo;
-uniform float u_Metallic;
-uniform float u_Roughness;
-uniform float u_Emissive;
 
 uniform vec3  u_CameraPos;
 uniform vec3  u_SunDirection;
@@ -196,7 +230,11 @@ float shadowFactor(vec3 worldPos, vec3 N, vec3 L)
 
 void main()
 {
-    vec3 albedo = u_Albedo.rgb;
+    vec3 albedo = v_Albedo.rgb;
+    float u_Metallic = v_Params.x;
+    float u_Roughness = v_Params.y;
+    float u_Emissive = v_Params.z;
+
     vec3 N = normalize(v_Normal);
     vec3 V = normalize(u_CameraPos - v_WorldPos);
 
@@ -226,8 +264,8 @@ void main()
     color = color / (color + vec3(1.0)); // Reinhard tonemap
     color = pow(color, vec3(1.0 / 2.2)); // to sRGB
 
-    o_Color = vec4(color, u_Albedo.a);
-    o_EntityId = u_EntityId;
+    o_Color = vec4(color, v_Albedo.a);
+    o_EntityId = int(v_Params.w);
 }
 )";
 
@@ -287,11 +325,13 @@ void main()
 
     const char* kDepthVertex = R"(#version 330 core
 layout(location = 0) in vec3 a_Position;
-uniform mat4 u_LightSpace;
-uniform mat4 u_Model;
+layout(location = 4) in mat4 i_Model;
+
+uniform mat4 u_ViewProjection;
+
 void main()
 {
-    gl_Position = u_LightSpace * u_Model * vec4(a_Position, 1.0);
+    gl_Position = u_ViewProjection * i_Model * vec4(a_Position, 1.0);
 }
 )";
 
@@ -403,6 +443,18 @@ bool Renderer3D::init()
         s.shadowsEnabled = false;
     }
 
+    // Grown on demand; the initial reservation avoids reallocating on the first
+    // few frames of a typical scene.
+    s.instanceCapacity = 4096;
+    s.instanceVbo.createDynamic(s.instanceCapacity * sizeof(InstanceData));
+    s.instanceVbo.setInstanced(true);
+    s.instanceVbo.setLayout({
+        {ShaderDataType::Mat4,  "i_Model"},
+        {ShaderDataType::Mat4,  "i_NormalMatrix"},
+        {ShaderDataType::Float4, "i_Albedo"},
+        {ShaderDataType::Float4, "i_Params"},
+    });
+
     s.initialized = true;
     std::cout << "[RENDERER3D] ready - forward PBR, " << kMaxPointLights
               << " point lights, " << kShadowMapSize << "^2 shadow map." << std::endl;
@@ -411,6 +463,9 @@ bool Renderer3D::init()
 
 void Renderer3D::shutdown()
 {
+    Mesh3D::releaseSharedPrimitives();
+    s.buckets.clear();
+    s.shadowBuckets.clear();
     if (s.shadowMap != 0) glDeleteTextures(1, &s.shadowMap);
     if (s.shadowFbo != 0) glDeleteFramebuffers(1, &s.shadowFbo);
     s.shadowMap = s.shadowFbo = 0;
@@ -480,7 +535,8 @@ bool Renderer3D::beginShadowPass(const glm::vec3& sceneCenter, float sceneRadius
     glCullFace(GL_FRONT);
 
     s.depthShader.bind();
-    s.depthShader.setMat4("u_LightSpace", s.lightSpace);
+    s.depthShader.setMat4("u_ViewProjection", s.lightSpace);
+    for (auto& [mesh, instances] : s.shadowBuckets) instances.clear();
     s.shadowPassActive = true;
     return true;
 }
@@ -489,17 +545,45 @@ void Renderer3D::drawMeshShadow(const std::shared_ptr<Mesh3D>& mesh, const glm::
 {
     if (!s.shadowPassActive || !mesh || !mesh->isValid()) return;
 
-    s.depthShader.setMat4("u_Model", transform);
-    mesh->bind();
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->getIndexCount()),
-                   GL_UNSIGNED_INT, nullptr);
-    VertexArray::unbind();
-    s.stats.drawCalls++;
+    // Bucketed and flushed at endShadowPass. Submitting each caster immediately meant
+    // one buffer upload and one draw per mesh, which cost more than the visible pass.
+    InstanceData instance{};
+    instance.model = transform;
+    s.shadowBuckets[mesh.get()].push_back(instance);
 }
+
+void Renderer3D::setDepthPrepassEnabled(bool enabled) { s.depthPrepassEnabled = enabled; }
+bool Renderer3D::isDepthPrepassEnabled() { return s.depthPrepassEnabled; }
 
 void Renderer3D::endShadowPass()
 {
     if (!s.shadowPassActive) return;
+
+    for (auto& [meshPtr, instances] : s.shadowBuckets)
+    {
+        if (instances.empty()) continue;
+
+        if (!meshPtr->hasInstanceAttributes())
+        {
+            meshPtr->getVertexArray().addVertexBuffer(s.instanceVbo);
+            meshPtr->markInstanceAttributesBound();
+        }
+
+        ensureInstanceCapacity(static_cast<unsigned int>(instances.size()));
+        s.instanceVbo.setData(instances.data(),
+                              static_cast<unsigned int>(instances.size() * sizeof(InstanceData)));
+
+        meshPtr->bind();
+        glDrawElementsInstanced(GL_TRIANGLES,
+                                static_cast<GLsizei>(meshPtr->getIndexCount()),
+                                GL_UNSIGNED_INT, nullptr,
+                                static_cast<GLsizei>(instances.size()));
+        VertexArray::unbind();
+
+        s.stats.drawCalls++;
+        instances.clear();
+    }
+
     glCullFace(GL_BACK);
     glDisable(GL_CULL_FACE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -544,6 +628,7 @@ void Renderer3D::beginScene(const glm::mat4& viewProjection, const glm::vec3& ca
     s.frustum = Frustum::fromViewProjection(viewProjection);
     s.stats = Renderer3DStats{};
     s.sceneActive = true;
+    for (auto& [mesh, instances] : s.buckets) instances.clear();
 
     // Everything that does not vary per mesh is uploaded once here. Previously all of
     // this - including up to 32 light uniforms - was re-sent for every single mesh,
@@ -581,6 +666,104 @@ bool Renderer3D::isCullingEnabled() { return s.cullingEnabled; }
 
 void Renderer3D::endScene()
 {
+    if (!s.initialized) { s.sceneActive = false; return; }
+
+    // Depth pre-pass. Colour writes off, depth writes on: fills the depth buffer as
+    // cheaply as the hardware can, so the shading pass below rejects hidden pixels
+    // before running the PBR shader on them.
+    if (s.depthPrepassEnabled && s.instancingEnabled)
+    {
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
+        s.depthShader.bind();
+        s.depthShader.setMat4("u_ViewProjection", s.viewProjection);
+
+        for (auto& [meshPtr, instances] : s.buckets)
+        {
+            if (instances.empty()) continue;
+            if (!meshPtr->hasInstanceAttributes())
+            {
+                meshPtr->getVertexArray().addVertexBuffer(s.instanceVbo);
+                meshPtr->markInstanceAttributesBound();
+            }
+            ensureInstanceCapacity(static_cast<unsigned int>(instances.size()));
+            s.instanceVbo.setData(instances.data(),
+                                  static_cast<unsigned int>(instances.size() * sizeof(InstanceData)));
+
+            meshPtr->bind();
+            glDrawElementsInstanced(GL_TRIANGLES,
+                                    static_cast<GLsizei>(meshPtr->getIndexCount()),
+                                    GL_UNSIGNED_INT, nullptr,
+                                    static_cast<GLsizei>(instances.size()));
+            VertexArray::unbind();
+            s.stats.prepassDraws++;
+        }
+
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        // Shade only fragments whose depth already matches, so each pixel shades once.
+        glDepthFunc(GL_EQUAL);
+        glDepthMask(GL_FALSE);
+    }
+
+    s.shader.bind();
+
+    for (auto& [meshPtr, instances] : s.buckets)
+    {
+        if (instances.empty()) continue;
+
+        // Wire the instance attributes onto this mesh's VAO once. Doing it per frame
+        // would re-specify the same pointers every draw for no benefit.
+        if (!meshPtr->hasInstanceAttributes())
+        {
+            meshPtr->getVertexArray().addVertexBuffer(s.instanceVbo);
+            meshPtr->markInstanceAttributesBound();
+        }
+
+        const unsigned int needed = static_cast<unsigned int>(instances.size());
+        ensureInstanceCapacity(needed);
+
+        s.instanceVbo.setData(instances.data(),
+                              static_cast<unsigned int>(instances.size() * sizeof(InstanceData)));
+
+        meshPtr->bind();
+        if (s.instancingEnabled)
+        {
+            glDrawElementsInstanced(GL_TRIANGLES,
+                                    static_cast<GLsizei>(meshPtr->getIndexCount()),
+                                    GL_UNSIGNED_INT, nullptr,
+                                    static_cast<GLsizei>(instances.size()));
+            s.stats.drawCalls++;
+            s.stats.batches++;
+            s.stats.instanced += needed;
+        }
+        else
+        {
+            // A/B path: one upload and one draw per instance, which is what the
+            // renderer did before batching. glDrawElementsInstancedBaseInstance would
+            // be neater but is GL 4.2, above the 3.3 baseline.
+            for (unsigned int i = 0; i < needed; i++)
+            {
+                s.instanceVbo.setData(&instances[i], sizeof(InstanceData));
+                glDrawElementsInstanced(GL_TRIANGLES,
+                                        static_cast<GLsizei>(meshPtr->getIndexCount()),
+                                        GL_UNSIGNED_INT, nullptr, 1);
+                s.stats.drawCalls++;
+            }
+        }
+        VertexArray::unbind();
+
+        instances.clear();
+    }
+
+    // Restore the default depth state for anything drawn after this pass - the sky,
+    // the grid, and the 2D batcher all assume it.
+    if (s.depthPrepassEnabled && s.instancingEnabled)
+    {
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_TRUE);
+    }
+
     s.sceneActive = false;
 }
 
@@ -616,30 +799,24 @@ void Renderer3D::drawMesh(const std::shared_ptr<Mesh3D>& mesh, const glm::mat4& 
         }
     }
 
-    s.shader.bind();
-    s.shader.setMat4("u_Model", transform);
+    InstanceData instance;
+    instance.model = transform;
+    // The inverse-transpose, so non-uniform scale keeps normals correct.
+    instance.normalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(transform)));
+    instance.albedo = material.albedo;
+    instance.params = {material.metallic, material.roughness, material.emissive,
+                       static_cast<float>(entityId)};
 
-    // glm::inverseTranspose of the upper 3x3, so non-uniform scale keeps normals correct.
-    const glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(transform));
-    glUniformMatrix3fv(glGetUniformLocation(s.shader.getID(), "u_NormalMatrix"),
-                       1, GL_FALSE, &normalMatrix[0][0]);
+    // Bucketed by mesh and flushed at endScene. Material rides in the instance data,
+    // so meshes sharing geometry but not colour still share one draw call.
+    s.buckets[mesh.get()].push_back(instance);
 
-    s.shader.setVec4("u_Albedo", material.albedo);
-    s.shader.setFloat("u_Metallic", material.metallic);
-    s.shader.setFloat("u_Roughness", material.roughness);
-    s.shader.setFloat("u_Emissive", material.emissive);
-    s.shader.setInt("u_EntityId", entityId);
-    s.stats.uniformUploads += 6;
-
-    mesh->bind();
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->getIndexCount()),
-                   GL_UNSIGNED_INT, nullptr);
-    VertexArray::unbind();
-
-    s.stats.drawCalls++;
     s.stats.meshCount++;
     s.stats.triangleCount += mesh->getIndexCount() / 3;
 }
+
+void Renderer3D::setInstancingEnabled(bool enabled) { s.instancingEnabled = enabled; }
+bool Renderer3D::isInstancingEnabled() { return s.instancingEnabled; }
 
 void Renderer3D::drawGrid(const glm::mat4& viewProjection, float extent)
 {

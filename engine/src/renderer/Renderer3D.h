@@ -70,6 +70,9 @@ namespace ScrapGameEngine
         unsigned int meshCount = 0;
         unsigned int triangleCount = 0;
         unsigned int culled = 0;        ///< Meshes rejected by the frustum test.
+        unsigned int instanced = 0;     ///< Meshes drawn as instances.
+        unsigned int batches = 0;       ///< Instanced draw calls issued.
+        unsigned int prepassDraws = 0;  ///< Draws issued by the depth pre-pass.
         unsigned int uniformUploads = 0; ///< Per-draw uniform sets, for spotting waste.
     };
 
@@ -145,6 +148,25 @@ namespace ScrapGameEngine
         /** @brief Enables or disables frustum culling, for A/B measurement. */
         static void setCullingEnabled(bool enabled);
         static bool isCullingEnabled();
+
+        /**
+         * @brief Enables or disables instancing, for A/B measurement.
+         *
+         * With it off every mesh takes its own draw call, which is what the
+         * benchmark compares against.
+         */
+        static void setInstancingEnabled(bool enabled);
+        static bool isInstancingEnabled();
+
+        /**
+         * @brief Enables or disables the depth pre-pass.
+         *
+         * Worth it when the scene has heavy overdraw and an expensive fragment shader,
+         * which is exactly this renderer with several point lights. Costs one extra
+         * geometry pass, saves shading every hidden pixel.
+         */
+        static void setDepthPrepassEnabled(bool enabled);
+        static bool isDepthPrepassEnabled();
 
         /** @brief Sets the procedural sky for subsequent passes. */
         static void setSky(const SkySettings& sky);

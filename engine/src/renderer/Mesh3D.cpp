@@ -33,6 +33,38 @@ bool Mesh3D::create(const std::vector<MeshVertex>& vertices, const std::vector<u
     return true;
 }
 
+namespace
+{
+    std::shared_ptr<Mesh3D> sharedCubeMesh;
+    std::shared_ptr<Mesh3D> sharedSphereMesh;
+    std::shared_ptr<Mesh3D> sharedPlaneMesh;
+}
+
+std::shared_ptr<Mesh3D> Mesh3D::sharedCube()
+{
+    if (!sharedCubeMesh) sharedCubeMesh = createCube();
+    return sharedCubeMesh;
+}
+
+std::shared_ptr<Mesh3D> Mesh3D::sharedSphere()
+{
+    if (!sharedSphereMesh) sharedSphereMesh = createSphere();
+    return sharedSphereMesh;
+}
+
+std::shared_ptr<Mesh3D> Mesh3D::sharedPlane()
+{
+    if (!sharedPlaneMesh) sharedPlaneMesh = createPlane(1.0f);
+    return sharedPlaneMesh;
+}
+
+void Mesh3D::releaseSharedPrimitives()
+{
+    sharedCubeMesh.reset();
+    sharedSphereMesh.reset();
+    sharedPlaneMesh.reset();
+}
+
 std::shared_ptr<Mesh3D> Mesh3D::createCube()
 {
     // Built face by face rather than as eight shared corners: a cube needs a distinct

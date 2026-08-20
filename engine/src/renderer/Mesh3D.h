@@ -46,6 +46,11 @@ namespace ScrapGameEngine
                     const std::vector<uint32_t>& indices);
 
         void bind() const { vao.bind(); }
+        /** @brief The vertex array, so a renderer can attach instance attributes. */
+        VertexArray& getVertexArray() { return vao; }
+        /** @brief True once instance attributes have been wired to this mesh. */
+        bool hasInstanceAttributes() const { return instanceAttributesBound; }
+        void markInstanceAttributesBound() { instanceAttributesBound = true; }
         unsigned int getIndexCount() const { return indexCount; }
         bool isValid() const { return indexCount > 0; }
 
@@ -63,11 +68,24 @@ namespace ScrapGameEngine
         /** @brief A flat plane on XZ, facing +Y. */
         static std::shared_ptr<Mesh3D> createPlane(float size = 1.0f);
 
+        // --- shared primitives -------------------------------------------------
+        // Built once and handed out to every caller. A cube is a cube: giving each
+        // entity its own copy wastes a vertex buffer per object and, worse, stops the
+        // renderer from batching them, since instances group by mesh identity.
+
+        static std::shared_ptr<Mesh3D> sharedCube();
+        static std::shared_ptr<Mesh3D> sharedSphere();
+        static std::shared_ptr<Mesh3D> sharedPlane();
+
+        /** @brief Drops the shared primitives. Called at renderer shutdown. */
+        static void releaseSharedPrimitives();
+
     private:
         VertexArray vao;
         VertexBuffer vbo;
         IndexBuffer ibo;
         unsigned int indexCount = 0;
+        bool instanceAttributesBound = false;
         std::string name = "Mesh";
     };
 }
