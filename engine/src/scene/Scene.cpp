@@ -5,6 +5,10 @@
 #include "renderer/Renderer.h"
 #include "renderer/Renderer2D.h"
 
+#ifdef SCRAP_HAS_DOTNET
+#include "scripting/ScriptEngine.h"
+#endif
+
 #include <random>
 
 namespace Scrap
@@ -72,9 +76,11 @@ namespace Scrap
 
     void Scene::onUpdateRuntime(float deltaTime)
     {
+#ifdef SCRAP_HAS_DOTNET
+        ScriptEngine::onUpdate(deltaTime);
+#else
         (void)deltaTime;
-        // Script dispatch lands here once ScriptComponent resolves against the hosted
-        // CoreCLR runtime. The runtime is up; what it needs is this call site.
+#endif
     }
 
     void Scene::renderSprites()

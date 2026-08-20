@@ -22,6 +22,7 @@
 
 #ifdef SCRAP_HAS_DOTNET
 #include "scripting/DotNetHost.h"
+#include "scripting/ScriptEngine.h"
 #endif
 
 #include <glad/glad.h>
@@ -67,6 +68,10 @@ namespace
         // A camera so play mode has something to render through.
         Scrap::Entity camera = scene->createEntity("Main Camera");
         camera.addComponent<Scrap::CameraComponent>();
+
+        // Scripted out of the box, so pressing Play shows the managed loop running.
+        scene->findByTag("Marker").addComponent<Scrap::ScriptComponent>().typeName = "Game.Spinner";
+        scene->findByTag("Player").addComponent<Scrap::ScriptComponent>().typeName = "Game.Pulser";
     }
 }
 
@@ -135,11 +140,104 @@ static int runSelfTest()
     return 0;
 }
 
+
+#ifdef SCRAP_HAS_DOTNET
+/**
+ * Headless check of the scripting loop, end to end: host the runtime, bind the script
+ * engine, instantiate a managed script onto an entity, tick it, and confirm the engine
+ * side actually changed. Run as `ScrapEditor --scripttest`.
+ *
+ * This is the check that matters for the interop boundary - a script that runs but
+ * cannot move anything would still print happily.
+ */
+static int runScriptTest()
+{
+    if (!ScrapGameEngine::DotNetHost::initialize("scripting/ScrapScript.runtimeconfig.json",
+                                                 "scripting/ScrapScript.dll"))
+    {
+        std::cerr << "FAIL: runtime did not host\n";
+        return 1;
+    }
+    if (!Scrap::ScriptEngine::initialize()) { std::cerr << "FAIL: script engine\n"; return 1; }
+
+    auto scene = std::make_shared<Scrap::Scene>();
+    Scrap::Entity spinner = scene->createEntity("Spinner");
+    spinner.getComponent<Scrap::TransformComponent>().translation = {1.0f, 2.0f, 0.0f};
+    spinner.addComponent<Scrap::ScriptComponent>().typeName = "Game.Spinner";
+
+    Scrap::Entity pulser = scene->createEntity("Pulser");
+    pulser.addComponent<Scrap::ScriptComponent>().typeName = "Game.Pulser";
+
+    // A type that does not exist must fail cleanly rather than take the process down.
+    Scrap::Entity broken = scene->createEntity("Broken");
+    broken.addComponent<Scrap::ScriptComponent>().typeName = "Game.DoesNotExist";
+
+    Scrap::ScriptEngine::onRuntimeStart(scene.get());
+    if (Scrap::ScriptEngine::liveInstanceCount() != 2)
+    {
+        std::cerr << "FAIL: expected 2 live instances, got "
+                  << Scrap::ScriptEngine::liveInstanceCount() << "\n";
+        return 1;
+    }
+
+    const float startRotation = spinner.getComponent<Scrap::TransformComponent>().rotation.z;
+    const glm::vec3 startScale = pulser.getComponent<Scrap::TransformComponent>().scale;
+
+    for (int frame = 0; frame < 30; frame++) Scrap::ScriptEngine::onUpdate(1.0f / 60.0f);
+
+    const auto& spinnerT = spinner.getComponent<Scrap::TransformComponent>();
+    const auto& pulserT = pulser.getComponent<Scrap::TransformComponent>();
+
+    // Managed -> native writes.
+    if (std::abs(spinnerT.rotation.z - startRotation) < 1e-3f)
+    {
+        std::cerr << "FAIL: script did not rotate the entity\n";
+        return 1;
+    }
+    if (std::abs(spinnerT.translation.y - 2.0f) < 1e-4f)
+    {
+        std::cerr << "FAIL: script did not bob the entity\n";
+        return 1;
+    }
+    // Native -> managed reads: Spinner captured its origin in OnCreate, so X must be
+    // preserved exactly rather than reset to zero.
+    if (std::abs(spinnerT.translation.x - 1.0f) > 1e-4f)
+    {
+        std::cerr << "FAIL: script lost the original position, x=" << spinnerT.translation.x << "\n";
+        return 1;
+    }
+    if (std::abs(pulserT.scale.x - startScale.x) < 1e-4f)
+    {
+        std::cerr << "FAIL: pulser did not change scale\n";
+        return 1;
+    }
+
+    Scrap::ScriptEngine::onRuntimeStop();
+    if (Scrap::ScriptEngine::liveInstanceCount() != 0)
+    {
+        std::cerr << "FAIL: instances survived stop\n";
+        return 1;
+    }
+
+    std::cout << "SCRIPTTEST OK - 2 instances ran, 1 bad type rejected, "
+              << "rotation " << startRotation << " -> " << spinnerT.rotation.z
+              << ", origin preserved, stop released all." << std::endl;
+
+    Scrap::ScriptEngine::shutdown();
+    ScrapGameEngine::DotNetHost::shutdown();
+    return 0;
+}
+#endif
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; i++)
     {
-        if (std::string(argv[i]) == "--selftest") return runSelfTest();
+        const std::string arg = argv[i];
+        if (arg == "--selftest") return runSelfTest();
+#ifdef SCRAP_HAS_DOTNET
+        if (arg == "--scripttest") return runScriptTest();
+#endif
     }
 
     AppWindowData windowData(1600, 900, "ScrapEditor");
@@ -223,6 +321,9 @@ int main(int argc, char** argv)
             ctx.logInfo("C# scripting online (CoreCLR).");
         }
         scriptTick = reinterpret_cast<TickFn>(DotNetHost::getFunction(type, "Tick"));
+
+        if (Scrap::ScriptEngine::initialize()) ctx.logInfo("Script engine bound.");
+        else ctx.logWarning("Script engine unavailable - ScriptComponents will not run.");
         scriptAverage = reinterpret_cast<AverageFrameTimeFn>(
             DotNetHost::getFunction(type, "AverageFrameTime"));
     }
@@ -357,6 +458,7 @@ int main(int argc, char** argv)
         std::cout << "[DOTNET] managed average frame time: "
                   << scriptAverage() * 1000.0f << " ms" << std::endl;
     }
+    Scrap::ScriptEngine::shutdown();
     DotNetHost::shutdown();
 #endif
 

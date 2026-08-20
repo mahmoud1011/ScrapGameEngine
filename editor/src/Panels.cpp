@@ -7,6 +7,10 @@
 #include "scene/Entity.h"
 #include "scene/Scene.h"
 
+#ifdef SCRAP_HAS_DOTNET
+#include "scripting/ScriptEngine.h"
+#endif
+
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -621,6 +625,12 @@ namespace Scrap::Editor
         else
             ImGui::TextUnformatted("nothing submitted");
         ImGui::PopStyleColor();
+
+#ifdef SCRAP_HAS_DOTNET
+        ImGui::Spacing();
+        sectionLabel("SCRIPTS");
+        ImGui::Text("Instances   %d", Scrap::ScriptEngine::liveInstanceCount());
+#endif
 
         ImGui::Spacing();
         sectionLabel("SCENE");

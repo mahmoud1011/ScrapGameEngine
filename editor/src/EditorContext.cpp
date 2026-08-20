@@ -1,5 +1,9 @@
 #include "EditorContext.h"
 
+#ifdef SCRAP_HAS_DOTNET
+#include "scripting/ScriptEngine.h"
+#endif
+
 namespace Scrap::Editor
 {
     EditorContext& EditorContext::get()
@@ -15,10 +19,16 @@ namespace Scrap::Editor
         activeScene = Scrap::Scene::copy(editorScene);
         playState = PlayState::Playing;
         clearSelection();
+#ifdef SCRAP_HAS_DOTNET
+        Scrap::ScriptEngine::onRuntimeStart(activeScene.get());
+#endif
     }
 
     void EditorContext::onStop()
     {
+#ifdef SCRAP_HAS_DOTNET
+        Scrap::ScriptEngine::onRuntimeStop();
+#endif
         activeScene = editorScene;
         playState = PlayState::Edit;
         clearSelection();

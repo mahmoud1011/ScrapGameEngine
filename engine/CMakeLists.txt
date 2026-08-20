@@ -51,7 +51,9 @@ add_library(ScrapEngine STATIC
 if(SCRAP_ENABLE_DOTNET)
     find_package(DotNetHost)
     if(DotNetHost_FOUND)
-        target_sources(ScrapEngine PRIVATE src/scripting/DotNetHost.cpp)
+        target_sources(ScrapEngine PRIVATE
+            src/scripting/DotNetHost.cpp
+            src/scripting/ScriptEngine.cpp)
         target_link_libraries(ScrapEngine PRIVATE DotNetHost::nethost)
         target_compile_definitions(ScrapEngine PUBLIC SCRAP_HAS_DOTNET=1)
         message(STATUS "ScrapEngine: C# scripting enabled (CoreCLR)")
