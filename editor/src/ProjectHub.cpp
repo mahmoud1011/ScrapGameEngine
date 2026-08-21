@@ -2,6 +2,7 @@
 #include "ImGuiLayer.h"
 #include "ScrapTheme.h"
 
+#include "platform/AppIcon.h"
 #include "project/Project.h"
 
 #include <glad/glad.h>
@@ -72,6 +73,11 @@ namespace Scrap::Editor
             std::cerr << "[HUB] could not create the hub window." << std::endl;
             return nullptr;
         }
+
+        // Set before the context work so the icon is in place the moment the
+        // window is first shown, rather than popping in a frame later.
+        ScrapGameEngine::AppIcon::setFromPng(
+            window, ScrapGameEngine::AppIcon::locateBrandingIcon());
 
         glfwMakeContextCurrent(window);
         glfwSwapInterval(1);

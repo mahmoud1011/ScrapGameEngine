@@ -13,6 +13,7 @@
 #include "ScrapTheme.h"
 
 #include "platform/AppWindow.h"
+#include "platform/AppIcon.h"
 #include "platform/Input.h"
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
@@ -657,6 +658,7 @@ int main(int argc, char** argv)
     }
 
     auto* nativeWindow = static_cast<GLFWwindow*>(window.getNativeWindow());
+    AppIcon::setFromPng(nativeWindow, AppIcon::locateBrandingIcon());
 
     bool running = true;
     window.setWindowEventCallback([&running](AppWindowEventType type, void*) {

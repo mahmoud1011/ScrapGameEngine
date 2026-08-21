@@ -1,0 +1,34 @@
+// Windows resource script for ScrapEditor.
+//
+// This is what Explorer, the taskbar pin and the alt-tab thumbnail use to identify
+// the executable itself - distinct from the runtime window icon, which AppIcon sets
+// from the PNG. Both are needed; neither substitutes for the other.
+//
+// Icon id 1 is deliberate: Windows shows the numerically lowest icon resource as the
+// application icon, so keeping it at 1 leaves room to add others without displacing it.
+
+1 ICON "../resources/ScrapEngine.ico"
+
+1 VERSIONINFO
+FILEVERSION     0,8,0,0
+PRODUCTVERSION  0,8,0,0
+FILEOS          0x4L
+FILETYPE        0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "ScrapEngine Editor"
+            VALUE "FileVersion",     "0.8.0.0"
+            VALUE "InternalName",    "ScrapEditor"
+            VALUE "OriginalFilename","ScrapEditor.exe"
+            VALUE "ProductName",     "ScrapEngine"
+            VALUE "ProductVersion",  "0.8.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

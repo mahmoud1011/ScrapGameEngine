@@ -14,6 +14,7 @@ add_library(ScrapEngine STATIC
     src/core/Scheduler.cpp
     src/core/Time.cpp
 
+    src/platform/AppIcon.cpp
     src/platform/AppWindow.cpp
     src/platform/Input.cpp
 
