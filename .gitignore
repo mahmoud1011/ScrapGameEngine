@@ -70,3 +70,6 @@ build/**/selftest.scrapscene
 # Editor-local state and user projects
 build/windows/bin/scrap-recent-projects.yaml
 projects/
+
+# Local: website working folder
+/[Ww]ebsite
